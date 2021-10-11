@@ -11,7 +11,7 @@
 * <strong>For [Windows Desktop](https://www.spotify.com/download/windows/) only. (Microsoft store version is not suitable)</strong>
 * <strong>You can select the 5 latest versions to roll back</strong>
 * <strong>Blocks all banner, video and audio ads in the client</strong>
-* <strong>Blocks automatic updates</strong>
+* <strong>Updates are forcibly blocked</strong>
 
 
 <h1>Fast installation / Update:</h1>
