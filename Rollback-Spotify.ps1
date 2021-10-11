@@ -236,10 +236,6 @@ catch {
 }
 
 
-mkdir $SpotifyDirectory >$null 2>&1
-
-
-
 
 If ($ch -eq 'r') {
 
