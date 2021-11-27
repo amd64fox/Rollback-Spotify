@@ -1,3 +1,7 @@
+<p align="center">                
+      <a href="https://t.me/amd64fox"><img src="https://img.shields.io/badge/%40Amd64fox-%40Amd64fox-blue.svg?style=flat&logo=telegram&label=Telegram"></a>
+      <a href="https://github.com/amd64fox/Rollback-Spotify/releases"><img src="https://img.shields.io/github/downloads/amd64fox/Rollback-Spotify/total.svg?style=flat&label=Total downloads"></a>
+      </p>
 <center>
     <h1 align="center">Rollback Spotify</h1>
     <h3 align="center">Return to one of the latest versions of Spotify.</h4>
