@@ -1,5 +1,5 @@
 # Ignore errors from `Stop-Process`
-$PSDefaultParameterValues['Stop-Process:ErrorAction'] = 'SilentlyContinue'
+$PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Automation.ActionPreference]::SilentlyContinue
 
 # Check Tls12
 $tsl_check = [Net.ServicePointManager]::SecurityProtocol 
@@ -7,23 +7,14 @@ if (!($tsl_check -match '^tls12$' )) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 }
 
-
-
-
-
-
 Write-Host "*****************" -ForegroundColor DarkYellow
 Write-Host "Rollback Spotify" -ForegroundColor DarkYellow
-Write-Host "*****************" -ForegroundColor DarkYellow
-
-
-
-
+Write-Host "Author: " -NoNewline
+Write-Host "@Amd64fox" -ForegroundColor DarkYellow
+Write-Host "*****************"`n -ForegroundColor DarkYellow
 
 
 $SpotifyexePatch = "$env:APPDATA\Spotify\Spotify.exe"
-$SpotifyDirectory = "$env:APPDATA\Spotify"
-
 
 
 Stop-Process -Name Spotify
@@ -31,6 +22,14 @@ Stop-Process -Name SpotifyWebHelper
 
 if ($PSVersionTable.PSVersion.Major -ge 7) {
     Import-Module Appx -UseWindowsPowerShell
+}
+
+
+[System.Security.Principal.WindowsPrincipal] $principal = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$isUserAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if ($isUserAdmin) {
+    Write-Host 'Startup detected with administrator rights'`n
 }
 # Check version Windows
 $win_os = (get-itemproperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name ProductName).ProductName
@@ -66,8 +65,18 @@ Exiting...
 }
 
 
-
-
+Push-Location -LiteralPath $env:TEMP
+try {
+    # Unique directory name based on time
+    New-Item -Type Directory -Name "Rollback-Spotify-$(Get-Date -UFormat '%Y-%m-%d_%H-%M-%S')" `
+  | Convert-Path `
+  | Set-Location
+}
+catch {
+    Write-Output $_
+    Read-Host 'Press any key to exit...'
+    exit
+}
 
 
 
@@ -80,8 +89,8 @@ if (Test-Path $SpotifyexePatch) {
         Write-Host  $verlast -ForegroundColor Green
         "`n"
 
-
-        $ch = Read-Host -Prompt "Want to remove (y) or replace (r) ? "
+        Write-Host "Do you want to uninstall the current version of Spotify first, or install over it?"
+        $ch = Read-Host -Prompt "Delete (Y) or install on over (R) ? "
         "`n"
         if (!($ch -eq 'y' -or $ch -eq 'r')) {
     
@@ -113,7 +122,6 @@ If ($ch -eq 'y') {
  
 }
  
-
 
  
 $wget = Invoke-WebRequest -UseBasicParsing -Uri https://docs.google.com/spreadsheets/d/1wztO1L4zvNykBRw7X4jxP8pvo11oQjT0O5DvZ_-S4Ok/edit#gid=0
@@ -177,46 +185,6 @@ if ($ch2 -eq 5) {
 
 
 
-
-Push-Location -LiteralPath $env:TEMP
-try {
-    # Unique directory name based on time
-    New-Item -Type Directory -Name "BlockTheSpot-$(Get-Date -UFormat '%Y-%m-%d_%H-%M-%S')" `
-  | Convert-Path `
-  | Set-Location
-}
-catch {
-    Write-Output ''
-    Pause
-    exit
-}
-
-
-Write-Host 'Downloading latest patch BTS...'`n
-
-$webClient = New-Object -TypeName System.Net.WebClient
-try {
-
-    $webClient.DownloadFile(
-        # Remote file URL
-        'https://github.com/mrpond/BlockTheSpot/releases/latest/download/chrome_elf.zip',
-        # Local file path
-        "$PWD\chrome_elf.zip"
-    )
-}
-catch {
-    Write-Output ''
-    Start-Sleep
-}
-
-Expand-Archive -Force -LiteralPath "$PWD\chrome_elf.zip" -DestinationPath $PWD
-Remove-Item -LiteralPath "$PWD\chrome_elf.zip"
-
-
-   
-
-
-
     
 Write-Host 'Downloading and install Spotify'
 
@@ -231,13 +199,16 @@ try {
 
 
 catch {
-    Write-Output ''
-    Start-Sleep
+    Write-Output $_
+    Read-Host "An error occurred while downloading the SpotifySetup.exe file`nPress any key to exit..."
+    exit
 }
 
 
 
-If ($ch -eq 'r') {
+$test_Spotifyexe = Test-Path $SpotifyexePatch
+
+If ($ch -eq 'r' -and $test_Spotifyexe) {
 
     if ($vernew -lt $verlast) {
 
@@ -249,25 +220,34 @@ If ($ch -eq 'r') {
 
 
 
+# Correcting the error if the spotify installer was launched from the administrator
 
-Start-Process -FilePath $PWD\SpotifySetup.exe; wait-process -name SpotifySetup
+if ($isUserAdmin) {
+    $apppath = 'powershell.exe'
+    $taskname = 'Spotify install'
+    $action = New-ScheduledTaskAction -Execute $apppath -Argument "-NoLogo -NoProfile -Command & `'$PWD\SpotifySetup.exe`'" 
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -WakeToRun
+    Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskname -Settings $settings -Force | Write-Verbose
+    Start-ScheduledTask -TaskName $taskname
+    Start-Sleep -Seconds 2
+    Unregister-ScheduledTask -TaskName $taskname -Confirm:$false
+    Start-Sleep -Seconds 2
+    wait-process -name SpotifySetup
+}
+else {
 
-
-Stop-Process -Name Spotify >$null 2>&1
-Stop-Process -Name SpotifyWebHelper >$null 2>&1
-Stop-Process -Name SpotifySetup >$null 2>&1
-
-
-
-
-if (!(test-path $SpotifyDirectory/chrome_elf_bak.dll)) {
-    Move-Item $SpotifyDirectory\chrome_elf.dll $SpotifyDirectory\chrome_elf_bak.dll >$null 2>&1
+    Start-Process -FilePath $PWD\SpotifySetup.exe; wait-process -name SpotifySetup
 }
 
-Write-Host 'Patching Spotify...'`n
 
-$patchFiles = "$PWD\chrome_elf.dll", "$PWD\config.ini"
-Copy-Item -LiteralPath $patchFiles -Destination "$SpotifyDirectory"
+
+Stop-Process -Name Spotify
+Stop-Process -Name SpotifyWebHelper
+Stop-Process -Name SpotifySetup
+
+Start-Sleep -Milliseconds 200
+
 
 $tempDirectory = $PWD
 Pop-Location
@@ -277,117 +257,16 @@ Start-Sleep -Milliseconds 200
 Remove-Item -Recurse -LiteralPath $tempDirectory 
 
 
-# Removing an empty block, "Upgrade button", "Upgrade to premium" menu
-
-$zipFilePath = "$env:APPDATA\Spotify\Apps\xpui.zip"
-$extractPath = "$env:APPDATA\Spotify\Apps\temporary"
-
-
-Rename-Item -path $env:APPDATA\Spotify\Apps\xpui.spa -NewName $env:APPDATA\Spotify\Apps\xpui.zip
-
-if (Test-Path $env:APPDATA\Spotify\Apps\temporary) {
-    Remove-item $env:APPDATA\Spotify\Apps\temporary -Recurse
-}
-New-Item -Path $env:APPDATA\Spotify\Apps\temporary -ItemType Directory | Out-Null
-
-# Достаем из архива xpui.zip файл xpui.js
-Add-Type -Assembly 'System.IO.Compression.FileSystem'
-$zip = [System.IO.Compression.ZipFile]::Open($zipFilePath, 'read')
-$zip.Entries | Where-Object Name -eq xpui.js | ForEach-Object { [System.IO.Compression.ZipFileExtensions]::ExtractToFile($_, "$extractPath\$($_.Name)", $true) }
-$zip.Dispose()
-
-# Делает резервную копию xpui.spa
-
-$file_js = Get-Content $env:APPDATA\Spotify\Apps\temporary\xpui.js -Raw
-    
-If (!($file_js -match 'patched by spotx')) {
-    Copy-Item $env:APPDATA\Spotify\Apps\xpui.zip $env:APPDATA\Spotify\Apps\xpui.bak
-}
-
-   
-# Мофифицируем и кладем обратно в архив файл xpui.js 
-
-If (!($file_js -match 'patched by spotx')) {
-    $file_js -match 'visible:!e}[)]{1}[,]{1}[A-Za-z]{1}[(]{1}[)]{1}.createElement[(]{1}[A-Za-z]{2}[,]{1}null[)]{1}[,]{1}[A-Za-z]{1}[(]{1}[)]{1}.' | Out-Null
-    $menu_split_js = $Matches[0] -split 'createElement[(]{1}[A-Za-z]{2}[,]{1}null[)]{1}[,]{1}[A-Za-z]{1}[(]{1}[)]{1}.'
-    $new_js = $file_js -replace "[.]{1}createElement[(]{1}..[,]{1}[{]{1}onClick[:]{1}.[,]{1}className[:]{1}..[.]{1}.[.]{1}UpgradeButton[}]{1}[)]{1}[,]{1}.[(]{1}[)]{1}", "" -replace 'adsEnabled:!0', 'adsEnabled:!1' -replace 'visible:!e}[)]{1}[,]{1}[A-Za-z]{1}[(]{1}[)]{1}.createElement[(]{1}[A-Za-z]{2}[,]{1}null[)]{1}[,]{1}[A-Za-z]{1}[(]{1}[)]{1}.', $menu_split_js -replace "allSponsorships", ""
-    Set-Content -Path $env:APPDATA\Spotify\Apps\temporary\xpui.js -Force -Value $new_js
-    add-content -Path $env:APPDATA\Spotify\Apps\temporary\xpui.js -Value '// Patched by SpotX' -passthru | Out-Null
-    $contentjs = [System.IO.File]::ReadAllText("$env:APPDATA\Spotify\Apps\temporary\xpui.js")
-    $contentjs = $contentjs.Trim()
-    [System.IO.File]::WriteAllText("$env:APPDATA\Spotify\Apps\temporary\xpui.js", $contentjs)
-    Compress-Archive -Path $env:APPDATA\Spotify\Apps\temporary\xpui.js -Update -DestinationPath $env:APPDATA\Spotify\Apps\xpui.zip
-}
-else {
-    "Xpui.js is already patched"
-}
-
-
-<#
-# Удаление меню через css (РЕЗЕРВНЫЙ)
-$file_css = Get-Content $env:APPDATA\Spotify\Apps\temporary\xpui.css -Raw
-If (!($file_css -match 'patched by spotx')) {
-    $new_css = $file_css -replace 'table{border-collapse:collapse;border-spacing:0}', 'table{border-collapse:collapse;border-spacing:0}[target="_blank"]{display:none !important;}'
-    Set-Content -Path $env:APPDATA\Spotify\Apps\temporary\xpui.css -Force -Value $new_css
-    add-content -Path $env:APPDATA\Spotify\Apps\temporary\xpui.css -Value '/* Patched by SpotX */' -passthru | Out-Null
-    $contentcss = [System.IO.File]::ReadAllText("$env:APPDATA\Spotify\Apps\temporary\xpui.css")
-    $contentcss = $contentcss.Trim()
-    [System.IO.File]::WriteAllText("$env:APPDATA\Spotify\Apps\temporary\xpui.css", $contentcss)
-    Compress-Archive -Path $env:APPDATA\Spotify\Apps\temporary\xpui.css -Update -DestinationPath $env:APPDATA\Spotify\Apps\xpui.zip
-}
-#>
-
-Rename-Item -path $env:APPDATA\Spotify\Apps\xpui.zip -NewName $env:APPDATA\Spotify\Apps\xpui.spa
-Remove-item $env:APPDATA\Spotify\Apps\temporary -Recurse
-
-
-
-# Если папки по умолчанию Dekstop не существует, то попытаться найти её через реестр.
-$ErrorActionPreference = 'SilentlyContinue' 
-
-if (Test-Path "$env:USERPROFILE\Desktop") {  
-
-    $desktop_folder = "$env:USERPROFILE\Desktop"
-    
-}
-
-$regedit_desktop_folder = Get-ItemProperty -Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders\"
-$regedit_desktop = $regedit_desktop_folder.'{754AC886-DF64-4CBA-86B5-F7FBF4FBCEF5}'
- 
-if (!(Test-Path "$env:USERPROFILE\Desktop")) {
-    $desktop_folder = $regedit_desktop
-    
-}
-
-
-
-# Shortcut bug
-$ErrorActionPreference = 'SilentlyContinue' 
-
-If (!(Test-Path $env:USERPROFILE\Desktop\Spotify.lnk)) {
-  
-    $source = "$env:APPDATA\Spotify\Spotify.exe"
-    $target = "$desktop_folder\Spotify.lnk"
-    $WorkingDir = "$env:APPDATA\Spotify"
-    $WshShell = New-Object -comObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut($target)
-    $Shortcut.WorkingDirectory = $WorkingDir
-    $Shortcut.TargetPath = $source
-    $Shortcut.Save()      
-}
 
 # Block updates
 
 $ErrorActionPreference = 'SilentlyContinue'  # Команда гасит легкие ошибки
-
 
 $update_directory = Test-Path -Path $env:LOCALAPPDATA\Spotify 
 $migrator_bak = Test-Path -Path $env:APPDATA\Spotify\SpotifyMigrator.bak  
 $migrator_exe = Test-Path -Path $env:APPDATA\Spotify\SpotifyMigrator.exe
 $Check_folder_file = Get-ItemProperty -Path $env:LOCALAPPDATA\Spotify\Update | Select-Object Attributes 
 $folder_update_access = Get-Acl $env:LOCALAPPDATA\Spotify\Update
-
-
 
 
 # Если была установка клиента 
@@ -451,9 +330,6 @@ If ($update_directory) {
     }
 
 }
-
-  
-Write-Host "Updates blocked successfully" -ForegroundColor Green
-
-
-Write-Host "Rollback completed" -ForegroundColor Green
+Write-Host 'Updates blocked'`n
+Write-Host "Installation completed"
+exit
