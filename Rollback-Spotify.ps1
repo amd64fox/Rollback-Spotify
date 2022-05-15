@@ -1,11 +1,9 @@
 # Ignore errors from `Stop-Process`
 $PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Automation.ActionPreference]::SilentlyContinue
 
-# Check Tls12
-$tsl_check = [Net.ServicePointManager]::SecurityProtocol 
-if (!($tsl_check -match '^tls12$' )) {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-}
+# Add Tls12
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 
 Write-Host "*****************" -ForegroundColor DarkYellow
 Write-Host "Rollback Spotify" -ForegroundColor DarkYellow
@@ -16,21 +14,26 @@ Write-Host "*****************"`n -ForegroundColor DarkYellow
 
 $SpotifyexePatch = "$env:APPDATA\Spotify\Spotify.exe"
 
-
 Stop-Process -Name Spotify
 Stop-Process -Name SpotifyWebHelper
 
 if ($PSVersionTable.PSVersion.Major -ge 7) {
-    Import-Module Appx -UseWindowsPowerShell
+    Import-Module Appx -UseWindowsPowerShell -WarningAction:SilentlyContinue
 }
+function incorrectValue {
 
+    Write-Host "Oops, an incorrect value, " -ForegroundColor Red -NoNewline
+    Write-Host "enter again through " -NoNewline
+    Start-Sleep -Milliseconds 1000
+    Write-Host "3" -NoNewline 
+    Start-Sleep -Milliseconds 1000
+    Write-Host " 2" -NoNewline
+    Start-Sleep -Milliseconds 1000
+    Write-Host " 1"
+    Start-Sleep -Milliseconds 1000     
+    Clear-Host
+} 
 
-[System.Security.Principal.WindowsPrincipal] $principal = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-$isUserAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
-
-if ($isUserAdmin) {
-    Write-Host 'Startup detected with administrator rights'`n
-}
 # Check version Windows
 $win_os = (get-itemproperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" -Name ProductName).ProductName
 $win11 = $win_os -match "\windows 11\b"
@@ -41,43 +44,32 @@ $win8 = $win_os -match "\windows 8\b"
 
 if ($win11 -or $win10 -or $win8_1 -or $win8) {
 
-
-    # Check and del Windows Store
+    # Remove Spotify Windows Store If Any
     if (Get-AppxPackage -Name SpotifyAB.SpotifyMusic) {
-        Write-Host @'
-The Microsoft Store version of Spotify has been detected which is not supported.
-'@`n
-        $ch = Read-Host -Prompt "Uninstall Spotify Windows Store edition (Y/N) "
-        if ($ch -eq 'y') {
-            Write-Host @'
-Uninstalling Spotify.
-'@`n
+        Write-Host 'The Microsoft Store version of Spotify has been detected which is not supported.'`n
+        do {
+            $ch = Read-Host -Prompt "Uninstall Spotify Windows Store edition (Y/N) "
+            Write-Host ""
+            if (!($ch -eq 'n' -or $ch -eq 'y')) {
+                incorrectValue
+            }
+        }
+        while ($ch -notmatch '^y$|^n$')
+        if ($ch -eq 'y') {      
+            $ProgressPreference = 'SilentlyContinue' # Hiding Progress Bars
+            Write-Host 'Uninstalling Spotify...'`n
             Get-AppxPackage -Name SpotifyAB.SpotifyMusic | Remove-AppxPackage
         }
-        else {
-            Write-Host @'
-Exiting...
-'@`n
-            Pause 
+        if ($ch -eq 'n') {
+            Read-Host "Exiting..." 
             exit
         }
     }
 }
 
-
+# Unique directory name based on time
 Push-Location -LiteralPath $env:TEMP
-try {
-    # Unique directory name based on time
-    New-Item -Type Directory -Name "Rollback-Spotify-$(Get-Date -UFormat '%Y-%m-%d_%H-%M-%S')" `
-  | Convert-Path `
-  | Set-Location
-}
-catch {
-    Write-Output $_
-    Read-Host 'Press any key to exit...'
-    exit
-}
-
+New-Item -Type Directory -Name "RollbackTemp-$(Get-Date -UFormat '%Y-%m-%d_%H-%M-%S')" | Convert-Path | Set-Location
 
 
 if (Test-Path $SpotifyexePatch) {
@@ -88,22 +80,11 @@ if (Test-Path $SpotifyexePatch) {
         Write-Host "You have version installed " -NoNewline
         Write-Host  $verlast -ForegroundColor Green
         "`n"
-
         Write-Host "Do you want to uninstall the current version of Spotify first, or install over it?"
         $ch = Read-Host -Prompt "Delete (Y) or install on over (R) ? "
         "`n"
         if (!($ch -eq 'y' -or $ch -eq 'r')) {
-    
-            Write-Host "Oops, an incorrect value, " -ForegroundColor Red -NoNewline
-            Write-Host "enter again through..." -NoNewline
-            Start-Sleep -Milliseconds 1000
-            Write-Host "3" -NoNewline
-            Start-Sleep -Milliseconds 1000
-            Write-Host ".2" -NoNewline
-            Start-Sleep -Milliseconds 1000
-            Write-Host ".1"
-            Start-Sleep -Milliseconds 1000     
-            Clear-Host
+            incorrectValue
         }
     }
     while ($ch -notmatch '^y$|^r$')
@@ -111,18 +92,13 @@ if (Test-Path $SpotifyexePatch) {
 }
 
 If ($ch -eq 'y') {
-    "`n"
-    Write-Host "Click Ok to delete Spotify"
-    "`n"
+
+    Write-Host "Click Ok to delete Spotify"`n
     Start-Process -FilePath $SpotifyexePatch /UNINSTALL
     Start-Sleep -Milliseconds 1500
     wait-process -Name SpotifyUninstall
     Start-Sleep -Milliseconds 1100
-
- 
 }
- 
-
  
 $wget = Invoke-WebRequest -UseBasicParsing -Uri https://docs.google.com/spreadsheets/d/1wztO1L4zvNykBRw7X4jxP8pvo11oQjT0O5DvZ_-S4Ok/edit#gid=0
 $result = $wget.RawContent | Select-String "1.\d.\d{1,2}.\d{1,5}.g[0-9a-z][0-9a-z][0-9a-z][0-9a-z][0-9a-z][0-9a-z][0-9a-z][0-9a-z]" -AllMatches
@@ -131,8 +107,6 @@ $version2 = $result.Matches.Value[5]
 $version3 = $result.Matches.Value[7]
 $version4 = $result.Matches.Value[9]
 $version5 = $result.Matches.Value[11]
-
-
 
 do {
     $ch2 = Read-Host -Prompt "1) $version1
@@ -145,18 +119,7 @@ Select the version to rollback"
     "`n"
 
     if (!($ch2 -match '^1$|^2$|^3$|^4$|^5$')) {
-    
-        Write-Host "Oops, an incorrect value, " -ForegroundColor Red -NoNewline
-        Write-Host "enter again through..." -NoNewline
-        Start-Sleep -Milliseconds 1000
-        Write-Host "3" -NoNewline
-        Start-Sleep -Milliseconds 1000
-        Write-Host ".2" -NoNewline
-        Start-Sleep -Milliseconds 1000
-        Write-Host ".1"
-        Start-Sleep -Milliseconds 1000     
-        Clear-Host
-    
+        incorrectValue
     }
 
 }
@@ -183,27 +146,77 @@ if ($ch2 -eq 5) {
     $vernew = $version5
 }
 
-
-
-    
 Write-Host 'Downloading and install Spotify'
-
 Write-Host 'Please wait...'`n
 
-
-try {
-
-    Start-BitsTransfer -Source  $result2.Matches.Value[0] -Destination "$PWD\SpotifySetup.exe"  -DisplayName "Downloading Spotify" -Description "$vernew "
+$ErrorActionPreference = 'SilentlyContinue'
+Import-Module BitsTransfer
+$webClient = New-Object -TypeName System.Net.WebClient
+try { if (curl.exe -V) { $curl_check = $true } }
+catch { $curl_check = $false }
     
+try { 
+
+    if ($curl_check) {
+        
+        curl.exe $result2.Matches.Value[0] -o "$PWD\SpotifySetup.exe" --progress-bar
+
+    }
+    
+    if ($null -ne (Get-Module -Name BitsTransfer -ListAvailable) -and !($curl_check )) {
+
+        Start-BitsTransfer -Source  $result2.Matches.Value[0] -Destination "$PWD\SpotifySetup.exe"  -DisplayName "Downloading Spotify" -Description "$vernew "
+
+    }
+    else {
+
+        $webClient.DownloadFile($result2.Matches.Value[0], "$PWD\SpotifySetup.exe")
+
+    }
 }
 
+catch [System.Management.Automation.MethodInvocationException] {
+    Write-Host ""
+    Write-Host "Error downloading SpotifySetup.exe" -ForegroundColor RED
+    $Error[0].Exception
+    Write-Host ""
+    Write-Host "Will re-request in 5 seconds..."`n
+    Start-Sleep -Milliseconds 5000 
 
-catch {
-    Write-Output $_
-    Read-Host "An error occurred while downloading the SpotifySetup.exe file`nPress any key to exit..."
-    exit
+    try { 
+
+        if ($curl_check) {
+            
+            curl.exe $result2.Matches.Value[0] -o "$PWD\SpotifySetup.exe" --progress-bar
+    
+        }
+        
+        if ($null -ne (Get-Module -Name BitsTransfer -ListAvailable) -and !($curl_check )) {
+    
+            Start-BitsTransfer -Source  $result2.Matches.Value[0] -Destination "$PWD\SpotifySetup.exe"  -DisplayName "Downloading Spotify" -Description "$vernew "
+    
+        }
+        else {
+    
+            $webClient.DownloadFile($result2.Matches.Value[0], "$PWD\SpotifySetup.exe")
+    
+        }
+    }
+        
+    catch [System.Management.Automation.MethodInvocationException] {
+        Write-Host "Error again, script stopped" -ForegroundColor RED
+        $Error[0].Exception
+        Write-Host ""
+        Write-Host "Try to check your internet connection and run the installation again."`n
+        $tempDirectory = $PWD
+        Pop-Location
+        Start-Sleep -Milliseconds 200
+        Remove-Item -Recurse -LiteralPath $tempDirectory 
+        exit
+    }
 }
 
+Write-Host ""
 
 
 $test_Spotifyexe = Test-Path $SpotifyexePatch
@@ -218,29 +231,9 @@ If ($ch -eq 'r' -and $test_Spotifyexe) {
     }
 }
 
-
-
-# Correcting the error if the spotify installer was launched from the administrator
-
-if ($isUserAdmin) {
-    $apppath = 'powershell.exe'
-    $taskname = 'Spotify install'
-    $action = New-ScheduledTaskAction -Execute $apppath -Argument "-NoLogo -NoProfile -Command & `'$PWD\SpotifySetup.exe`'" 
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -WakeToRun
-    Register-ScheduledTask -Action $action -Trigger $trigger -TaskName $taskname -Settings $settings -Force | Write-Verbose
-    Start-ScheduledTask -TaskName $taskname
-    Start-Sleep -Seconds 2
-    Unregister-ScheduledTask -TaskName $taskname -Confirm:$false
-    Start-Sleep -Seconds 2
-    wait-process -name SpotifySetup
-}
-else {
-
-    Start-Process -FilePath $PWD\SpotifySetup.exe; wait-process -name SpotifySetup
-}
-
-
+Start-Process -FilePath explorer.exe -ArgumentList $PWD\SpotifySetup.exe
+while (-not (get-process | Where-Object { $_.ProcessName -eq 'SpotifySetup' })) {}
+wait-process -name SpotifySetup
 
 Stop-Process -Name Spotify
 Stop-Process -Name SpotifyWebHelper
@@ -248,88 +241,35 @@ Stop-Process -Name SpotifySetup
 
 Start-Sleep -Milliseconds 200
 
-
 $tempDirectory = $PWD
 Pop-Location
-
 
 Start-Sleep -Milliseconds 200
 Remove-Item -Recurse -LiteralPath $tempDirectory 
 
 
-
 # Block updates
 
-$ErrorActionPreference = 'SilentlyContinue'  # Команда гасит легкие ошибки
+$ErrorActionPreference = 'SilentlyContinue'
+$update_test_exe = Test-Path -Path $SpotifyexePatch
 
-$update_directory = Test-Path -Path $env:LOCALAPPDATA\Spotify 
-$migrator_bak = Test-Path -Path $env:APPDATA\Spotify\SpotifyMigrator.bak  
-$migrator_exe = Test-Path -Path $env:APPDATA\Spotify\SpotifyMigrator.exe
-$Check_folder_file = Get-ItemProperty -Path $env:LOCALAPPDATA\Spotify\Update | Select-Object Attributes 
-$folder_update_access = Get-Acl $env:LOCALAPPDATA\Spotify\Update
+Write-Host "Block updates"`n
 
-
-# Если была установка клиента 
-if (!($update_directory)) {
-
-    # Создать папку Spotify в Local
-    New-Item -Path $env:LOCALAPPDATA -Name "Spotify" -ItemType "directory" | Out-Null
-
-    #Создать файл Update
-    New-Item -Path $env:LOCALAPPDATA\Spotify\ -Name "Update" -ItemType "file" -Value "STOPIT" | Out-Null
-    $file = Get-ItemProperty -Path $env:LOCALAPPDATA\Spotify\Update
-    $file.Attributes = "ReadOnly", "System"
-      
-    # Если оба файлав мигратора существуют то .bak удалить, а .exe переименовать в .bak
-    If ($migrator_exe -and $migrator_bak) {
-        Remove-item $env:APPDATA\Spotify\SpotifyMigrator.bak -Recurse -Force
-        Rename-Item -path $env:APPDATA\Spotify\SpotifyMigrator.exe -NewName $env:APPDATA\Spotify\SpotifyMigrator.bak
+if ($update_test_exe) {
+    $exe = "$env:APPDATA\Spotify\spotify.exe"
+    $ANSI = [Text.Encoding]::GetEncoding(1251)
+    $old = [IO.File]::ReadAllText($exe, $ANSI)
+    if ($old -match "(?<=wg:\/\/desktop-update\/.)2(\/update)") {
+        $new = $old -replace "(?<=wg:\/\/desktop-update\/.)2(\/update)", '7/update'
+        [IO.File]::WriteAllText($exe, $new, $ANSI)
     }
-
-    # Если есть только мигратор .exe то переименовать его в .bak
-    if ($migrator_exe) {
-        Rename-Item -path $env:APPDATA\Spotify\SpotifyMigrator.exe -NewName $env:APPDATA\Spotify\SpotifyMigrator.bak
+    else {
+        Write-Host "Failed to block updates"`n -ForegroundColor Red
     }
-
+}
+else {
+    Write-Host "Could not find Spotify.exe"`n -ForegroundColor Red 
 }
 
-
-# Если клиент уже был 
-If ($update_directory) {
-
-
-    #Удалить папку Update если она есть
-    if ($Check_folder_file -match '\bDirectory\b') {  
-
-        #Если у папки Update заблокированы права то разблокировать 
-        if ($folder_update_access.AccessToString -match 'Deny') {
-
-        ($ACL = Get-Acl $env:LOCALAPPDATA\Spotify\Update).access | ForEach-Object {
-                $Users = $_.IdentityReference 
-                $ACL.PurgeAccessRules($Users) }
-            $ACL | Set-Acl $env:LOCALAPPDATA\Spotify\Update
-        }
-        Remove-item $env:LOCALAPPDATA\Spotify\Update -Recurse -Force
-    } 
-
-    #Создать файл Update если его нет
-    if (!($Check_folder_file -match '\bSystem\b|' -and $Check_folder_file -match '\bReadOnly\b')) {  
-        New-Item -Path $env:LOCALAPPDATA\Spotify\ -Name "Update" -ItemType "file" -Value "STOPIT" | Out-Null
-        $file = Get-ItemProperty -Path $env:LOCALAPPDATA\Spotify\Update
-        $file.Attributes = "ReadOnly", "System"
-    }
-    # Если оба файлав мигратора существуют то .bak удалить, а .exe переименовать в .bak
-    If ($migrator_exe -and $migrator_bak) {
-        Remove-item $env:APPDATA\Spotify\SpotifyMigrator.bak -Recurse -Force
-        Rename-Item -path $env:APPDATA\Spotify\SpotifyMigrator.exe -NewName $env:APPDATA\Spotify\SpotifyMigrator.bak
-    }
-
-    # Если есть только мигратор .exe то переименовать его в .bak
-    if ($migrator_exe) {
-        Rename-Item -path $env:APPDATA\Spotify\SpotifyMigrator.exe -NewName $env:APPDATA\Spotify\SpotifyMigrator.bak
-    }
-
-}
-Write-Host 'Updates blocked'`n
-Write-Host "Installation completed"
+Write-Host "Completed successfully"`n -ForegroundColor Green
 exit

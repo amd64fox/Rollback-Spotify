@@ -20,3 +20,10 @@
 <h1>Fast installation / Update:</h1>
 
 * Just download and run [Install.bat](https://cutt.ly/QE4ZHqN)
+
+or
+
+* Run The following command in PowerShell:
+```ps1
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/amd64fox/Rollback-Spotify/main/Rollback-Spotify.ps1' | Invoke-Expression
+```
