@@ -158,20 +158,15 @@ catch { $curl_check = $false }
 try { 
 
     if ($curl_check) {
-        
         curl.exe $result2.Matches.Value[0] -o "$PWD\SpotifySetup.exe" --progress-bar
-
     }
     
     if ($null -ne (Get-Module -Name BitsTransfer -ListAvailable) -and !($curl_check )) {
-
         Start-BitsTransfer -Source  $result2.Matches.Value[0] -Destination "$PWD\SpotifySetup.exe"  -DisplayName "Downloading Spotify" -Description "$vernew "
-
     }
-    else {
 
+    if ($null -eq (Get-Module -Name BitsTransfer -ListAvailable) -and !($curl_check )) {
         $webClient.DownloadFile($result2.Matches.Value[0], "$PWD\SpotifySetup.exe")
-
     }
 }
 
@@ -186,20 +181,14 @@ catch [System.Management.Automation.MethodInvocationException] {
     try { 
 
         if ($curl_check) {
-            
             curl.exe $result2.Matches.Value[0] -o "$PWD\SpotifySetup.exe" --progress-bar
-    
         }
         
         if ($null -ne (Get-Module -Name BitsTransfer -ListAvailable) -and !($curl_check )) {
-    
             Start-BitsTransfer -Source  $result2.Matches.Value[0] -Destination "$PWD\SpotifySetup.exe"  -DisplayName "Downloading Spotify" -Description "$vernew "
-    
         }
-        else {
-    
+        if ($null -eq (Get-Module -Name BitsTransfer -ListAvailable) -and !($curl_check )) {
             $webClient.DownloadFile($result2.Matches.Value[0], "$PWD\SpotifySetup.exe")
-    
         }
     }
         
