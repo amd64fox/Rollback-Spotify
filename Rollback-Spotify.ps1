@@ -93,11 +93,11 @@ if (Test-Path $SpotifyexePatch) {
 
 If ($ch -eq 'y') {
 
-    Write-Host "Click Ok to delete Spotify"`n
-    Start-Process -FilePath $SpotifyexePatch /UNINSTALL
-    Start-Sleep -Milliseconds 1500
-    wait-process -Name SpotifyUninstall
-    Start-Sleep -Milliseconds 1100
+    Write-Host "Uninstall Spotify..."
+    Write-Host ""
+    cmd /c $spotifyExecutable /UNINSTALL /SILENT
+    wait-process -name SpotifyUninstall
+    Start-Sleep -Milliseconds 200
 }
  
 $wget = Invoke-WebRequest -UseBasicParsing -Uri https://docs.google.com/spreadsheets/d/1wztO1L4zvNykBRw7X4jxP8pvo11oQjT0O5DvZ_-S4Ok/edit#gid=0
@@ -146,7 +146,7 @@ if ($ch2 -eq 5) {
     $vernew = $version5
 }
 
-Write-Host 'Downloading and install Spotify'
+Write-Host 'Downloading Spotify'
 Write-Host 'Please wait...'`n
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -220,13 +220,12 @@ If ($ch -eq 'r' -and $test_Spotifyexe) {
     }
 }
 
-Start-Process -FilePath explorer.exe -ArgumentList $PWD\SpotifySetup.exe
-while (-not (get-process | Where-Object { $_.ProcessName -eq 'SpotifySetup' })) {}
-wait-process -name SpotifySetup
+# Client installation
+Write-Host "Installing Spotify..." 
+Write-Host ""
+cmd /c $PWD\SpotifySetup.exe /SILENT
 
 Stop-Process -Name Spotify
-Stop-Process -Name SpotifyWebHelper
-Stop-Process -Name SpotifySetup
 
 Start-Sleep -Milliseconds 200
 
