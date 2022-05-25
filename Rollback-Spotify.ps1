@@ -95,7 +95,7 @@ If ($ch -eq 'y') {
 
     Write-Host "Uninstall Spotify..."
     Write-Host ""
-    cmd /c $spotifyExecutable /UNINSTALL /SILENT
+    cmd /c $SpotifyexePatch /UNINSTALL /SILENT
     wait-process -name SpotifyUninstall
     Start-Sleep -Milliseconds 200
 }
