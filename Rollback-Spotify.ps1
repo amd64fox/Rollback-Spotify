@@ -207,19 +207,6 @@ catch [System.Management.Automation.MethodInvocationException] {
 
 Write-Host ""
 
-
-$test_Spotifyexe = Test-Path $SpotifyexePatch
-
-If ($ch -eq 'r' -and $test_Spotifyexe) {
-
-    if ($vernew -lt $verlast) {
-
-
-        Write-Host 'Please confirm reinstallation'`n
-        
-    }
-}
-
 # Client installation
 Write-Host "Installing Spotify..." 
 Write-Host ""
@@ -237,7 +224,6 @@ Remove-Item -Recurse -LiteralPath $tempDirectory
 
 
 # Block updates
-
 $ErrorActionPreference = 'SilentlyContinue'
 $update_test_exe = Test-Path -Path $SpotifyexePatch
 
