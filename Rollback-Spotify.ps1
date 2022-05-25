@@ -146,7 +146,7 @@ if ($ch2 -eq 5) {
     $vernew = $version5
 }
 
-Write-Host 'Downloading Spotify'
+Write-Host 'Downloading and installing Spotify'
 Write-Host 'Please wait...'`n
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -205,15 +205,14 @@ catch [System.Management.Automation.MethodInvocationException] {
     }
 }
 
-Write-Host ""
+Start-Sleep -Milliseconds 200
 
 # Client installation
-Write-Host "Installing Spotify..." 
-Write-Host ""
-cmd /c $PWD\SpotifySetup.exe /SILENT
+Start-Process -FilePath explorer.exe -ArgumentList $PWD\SpotifySetup.exe
+while (-not (get-process | Where-Object { $_.ProcessName -eq 'SpotifySetup' })) {}
+wait-process -name SpotifySetup
 
 Stop-Process -Name Spotify
-
 Start-Sleep -Milliseconds 200
 
 $tempDirectory = $PWD
