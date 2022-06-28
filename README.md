@@ -4,7 +4,7 @@
       </p>
 <center>
     <h1 align="center">Rollback Spotify</h1>
-    <h3 align="center">Return to one of the latest versions of Spotify.</h3>
+    <h3 align="center">Downgrade Spotify and block update for Windows</h3>
 </center>
 
 ***
