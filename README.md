@@ -14,7 +14,7 @@
    >**Note** 
 Do not use versions from 1.1.58 and below, the developers of Spotify forcibly restricted them.
 
-3. <strong> Now it remains to block updates, just download and run [Upd_Block.bat](https://cutt.ly/gKGHVMc)
+3. <strong> Now it remains to block updates, just download and run [Upd_Block.bat](https://raw.githack.com/amd64fox/Rollback-Spotify/main/Upd_Block.bat)
     - or run The following command in PowerShell:
 ```ps1
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/amd64fox/Rollback-Spotify/main/Upd_Block.ps1' | Invoke-Expression
