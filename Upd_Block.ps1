@@ -4,23 +4,33 @@ $PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Autom
 # Add Tls12
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-Write-Host "*****************" -ForegroundColor DarkYellow
-Write-Host "Block updates Spotify" -ForegroundColor DarkYellow
-Write-Host "Author: " -NoNewline
-Write-Host "@Amd64fox" -ForegroundColor DarkYellow
-Write-Host "*****************"`n -ForegroundColor DarkYellow
-
-$SpotifyexePatch = "$env:APPDATA\Spotify\Spotify.exe"
+Write-host "
+████ ████ █   █   ████  ████ ████ █  █     ███ ████ ████ ███ ███ ███ ██ ██
+█  █ █  █ █   █   █  ██ █  █ █  █ █ █      █   █  █ █  █  █   █  █    ███ 
+████ █  █ █   █   ████  ████ █    ██   ███ ███ ████ █  █  █   █  ███   █  
+█ █  █  █ █   █   █  ██ █  █ █  █ █ █        █ █    █  █  █   █  █     █  
+█ █  ████ ███ ███ ████  █  █ ████ █  █     ███ █    ████  █  ███ █     █
+" -ForegroundColor DarkGreen
 
 $ErrorActionPreference = 'SilentlyContinue'
 Stop-Process -Name Spotify
-$update_test_exe = Test-Path -Path $SpotifyexePatch
+
+$spotifyexe = Join-Path $env:APPDATA 'Spotify\Spotify.exe'
+$update_test_exe = Test-Path -Path $Spotifyexe
 
 if ($update_test_exe) {
-    $exe = "$env:APPDATA\Spotify\Spotify.exe"
-    $exe_bak = "$env:APPDATA\Spotify\Spotify.bak"
+    $versionInfo = (Get-Item $spotifyexe).VersionInfo
+    $currentVersion = $versionInfo.ProductVersion
+    $targetVersion = "1.1.59.710"
+    
+    if ([version]$currentVersion -lt [version]$targetVersion) {
+        Write-Warning "Your version $($currentVersion) is officially restricted by the Spotify developers, `nWorking versions start at $($targetVersion) and up.`n"
+    }
+    
+    $exe_bak = Join-Path $env:APPDATA 'Spotify\Spotify.bak'
+
     $ANSI = [Text.Encoding]::GetEncoding(1251)
-    $old = [IO.File]::ReadAllText($exe, $ANSI)
+    $old = [IO.File]::ReadAllText($spotifyexe, $ANSI)
 
     if ($old -match "(?<=wg:\/\/desktop-update\/.)7(\/update)") {
         Write-Host "Spotify updates are already blocked"`n
@@ -43,8 +53,8 @@ if ($update_test_exe) {
             }
             while ($ch -notmatch '^y$|^n$')
             if ($ch -eq 'y') {   
-                Remove-item $SpotifyexePatch -Force
-                Rename-Item -path $exe_bak -NewName $SpotifyexePatch
+                Remove-item $spotifyexe -Force
+                Rename-Item -path $exe_bak -NewName $spotifyexe
                 Write-Host "Updates unlocked"
                 exit
             }
@@ -56,9 +66,9 @@ if ($update_test_exe) {
         exit
     }
     elseif ($old -match "(?<=wg:\/\/desktop-update\/.)2(\/update)") {
-        copy-Item $exe $exe_bak
+        copy-Item $spotifyexe $exe_bak
         $new = $old -replace "(?<=wg:\/\/desktop-update\/.)2(\/update)", '7/update'
-        [IO.File]::WriteAllText($exe, $new, $ANSI)
+        [IO.File]::WriteAllText($spotifyexe, $new, $ANSI)
         Write-Host "Updates blocked"`n -ForegroundColor Green
     }
     else {
