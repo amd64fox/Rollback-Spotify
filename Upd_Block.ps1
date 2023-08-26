@@ -2,15 +2,7 @@
 $PSDefaultParameterValues['Stop-Process:ErrorAction'] = [System.Management.Automation.ActionPreference]::SilentlyContinue
 
 # Add Tls12
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-Write-host "
-████ ████ █   █   ████  ████ ████ █  █     ███ ████ ████ ███ ███ ███ ██ ██
-█  █ █  █ █   █   █  ██ █  █ █  █ █ █      █   █  █ █  █  █   █  █    ███ 
-████ █  █ █   █   ████  ████ █    ██   ███ ███ ████ █  █  █   █  ███   █  
-█ █  █  █ █   █   █  ██ █  █ █  █ █ █        █ █    █  █  █   █  █     █  
-█ █  ████ ███ ███ ████  █  █ ████ █  █     ███ █    ████  █  ███ █     █
-" -ForegroundColor DarkGreen
+[Net.ServicePointManager]::SecurityProtocol = 3072
 
 $ErrorActionPreference = 'SilentlyContinue'
 Stop-Process -Name Spotify
@@ -32,7 +24,7 @@ if ($update_test_exe) {
     $ANSI = [Text.Encoding]::GetEncoding(1251)
     $old = [IO.File]::ReadAllText($spotifyexe, $ANSI)
 
-    if ($old -match "(?<=wg:\/\/desktop-update\/.)7(\/update)") {
+    if ($old -match "(?<=desktop-update\/.)7(\/update)") {
         Write-Host "Spotify updates are already blocked"`n
         if (Test-Path -Path $exe_bak) {
             do {
@@ -65,9 +57,9 @@ if ($update_test_exe) {
         Write-Host "Failed to find backup file Spotify.exe, to unlock updates, reinstall Spotify manually"
         exit
     }
-    elseif ($old -match "(?<=wg:\/\/desktop-update\/.)2(\/update)") {
+    elseif ($old -match "(?<=desktop-update\/.)2(\/update)") {
         copy-Item $spotifyexe $exe_bak
-        $new = $old -replace "(?<=wg:\/\/desktop-update\/.)2(\/update)", '7/update'
+        $new = $old -replace "(?<=desktop-update\/.)2(\/update)", '7/update'
         [IO.File]::WriteAllText($spotifyexe, $new, $ANSI)
         Write-Host "Updates blocked"`n -ForegroundColor Green
     }
