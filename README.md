@@ -1,6 +1,6 @@
 <p align="center">
-      <a href="https://t.me/SpotxCommunity"><img src="https://cdn.statically.io/gh/amd64fox/SpotX/main/.github/Pic/Shields/SpotX_Community.svg"></a>
-      <a href="https://cutt.ly/8EH6NuH"><img src="https://cdn.statically.io/gh/amd64fox/Rollback-Spotify/main/.github/Pic/Shields/excel.svg"></a>
+      <a href="https://t.me/SpotxCommunity"><img src="https://raw.githubusercontent.com/amd64fox/SpotX/main/.github/Pic/Shields/SpotX_Community.svg"></a>
+      <a href="https://cutt.ly/8EH6NuH"><img src="https://raw.githubusercontent.com/amd64fox/Rollback-Spotify/main/.github/Pic/Shields/excel.svg"></a>
       </p>
 <center>
     <h1 align="center">Rollback Spotify</h1>
@@ -17,7 +17,7 @@ Do not use versions from 1.1.58 and below, the developers of Spotify forcibly re
 3. <strong> Now it remains to block updates, just download and run [Upd_Block.bat](https://raw.githack.com/amd64fox/Rollback-Spotify/main/Upd_Block.bat)
     - or run The following command in PowerShell:
 ```ps1
-[Net.ServicePointManager]::SecurityProtocol = 3072; iwr -useb 'https://cdn.statically.io/gh/amd64fox/Rollback-Spotify/main/Upd_Block.ps1' | iex
+[Net.ServicePointManager]::SecurityProtocol = 3072; iwr -useb 'https://raw.githubusercontent.com/amd64fox/Rollback-Spotify/main/Upd_Block.ps1' | iex
 ```
 
 ***
