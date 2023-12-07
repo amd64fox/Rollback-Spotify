@@ -217,6 +217,7 @@ Function Version-Select {
                 while ($true) {
                     Write-Text -txt "[1] - x86 `n[2] - x64 `n[3] - arm64" -f
                     $choice = Read-Host "`nChoose version architecture"
+                    Write-Host
                     switch ($choice) {
                         { $_ -in '1', '2', '3' } {
                             switch ($choice) {
@@ -758,7 +759,7 @@ function BlockUpdate {
 }
 
 Write-Text -txt 'Rollback Spotify' -f -c 'DarkGreen'
-Write-Text -txt '¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯' -c 'DarkGreen'
+Write-Text -txt '----------------' -e -c 'DarkGreen' 
 
 $spLocal = Join-Path $env:LOCALAPPDATA 'Spotify'
 $spRoaming = Join-Path $env:APPDATA 'Spotify'
@@ -811,7 +812,7 @@ if (!(Test-Paths -Sp_exe)) {
     $index = $fullversion.IndexOf(".g")
     $part = $fullversion.Substring(0, $index)
 
-    Write-Text "Download version " -f -n
+    Write-Text "Download version " -n
     Write-Host "$($part)-[$($resp.arch)]" -ForegroundColor Green -NoNewline
     Write-host " ..."
     Invoke-Download -URL $resp.link -FileName "SpotifySetup.exe" 
