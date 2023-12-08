@@ -184,7 +184,7 @@ Function Version-Select {
                 return $data
             }
             default {
-                Write-Warning 'Invalid value for the "version" parameter'
+                Write-Text -txt 'Invalid value for the "version" parameter' -w -e
                 break
             }
         }
@@ -590,9 +590,9 @@ Function UninstallSpMs {
 
     if ($osRes -and $package) {
 
-        Write-Text -txt "The Microsoft Store version of Spotify has been detected which is not supported" -t
+        Write-Text -txt "The Microsoft Store version of Spotify has been detected which is not supported" -e
 
-        if (!($confirm_uninstall)) {
+        if (!($uninstall)) {
 
             $options = @{
                 "question"    = "Uninstall Spotify Microsoft Store edition?"
@@ -605,7 +605,7 @@ Function UninstallSpMs {
         }
 
         if ($ch -eq 1 ) { 
-            Write-Text -txt "script stopped" -w -f
+            Write-Text -txt "script stopped" -w
             Pause
             exit
         }
