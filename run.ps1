@@ -779,7 +779,7 @@ function BlockUpdate {
     $modPtrn = "(?<=desktop-update\/.)2(\/update)"
 
     if ($old -match $natPtrn) {
-        Write-Text -txt "Spotify updates are already blocked" -t
+        Write-Text -txt "Spotify updates are already blocked" -e
         if (Test-Path -Path $exe_bak) {
             $options = @{
                 "question"    = "Do you want to unlock updates?"
@@ -794,7 +794,7 @@ function BlockUpdate {
                 return
             }
             if ($ch -eq 1) { 
-                Write-Text -txt "Updates remained blocked" -t
+                Write-Text -txt "Updates remained blocked" -e
                 return
             }
         }
