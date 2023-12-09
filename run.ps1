@@ -236,10 +236,10 @@ Function Version-Select {
                                 }
                                 return $data
                             }             
-                            Write-Text -txt "Architecture $($choice) not found for this version" -w -f
+                            Write-Warning "Architecture $($choice) not found for this version" 
                         }
                         default {
-                            Write-Text -txt "Incorrect input" -w -f
+                            Write-Warning "Incorrect input"
                         }
                     }
                 }
@@ -299,6 +299,61 @@ function Kill-Spotify {
 
     if ($attempt -gt $maxAttempts) {
         Write-Host "The maximum number of attempts to terminate a process has been reached."
+    }
+}
+
+function Invoke-Method {
+
+    param(
+
+        [string]$method,
+
+        [string]$url,
+
+        [string]$namefile,
+
+        [int]$retries = 3,
+
+        [int]$wait = 4
+    )
+
+    $attempt = 0
+
+    while ($attempt -le $retries) {
+        try {
+            switch ($method) {
+
+                "download" {
+
+                    Invoke-Download -URL $url -FileName $namefile
+                    return
+
+                }
+                "rest" {
+
+                    return Invoke-RestMethod -Uri $url
+
+                }
+                default {
+                    Write-Host 'Invalid value for the "method" parameter' 
+                    exit
+                }
+            }
+        }
+        catch {
+            $attempt++
+            if ($attempt -le $retries) {
+
+                Write-Warning "Attempt $attempt failed: $($_.Exception.Message)"
+                Write-Text -txt "Retrying in $($wait) seconds..." -e
+                Start-Sleep -Seconds $wait
+                $wait += 2
+            }
+            else {
+                Write-Text -txt "Maximum repetitions for the '$($method)' method reached `n`nConnection issues, script halte." -color "red"
+                exit
+            }
+        }
     }
 }
 
@@ -560,7 +615,8 @@ function Invoke-Download {
             }
         }
         else {
-            Write-Error 'Failed to start download'
+            $ErrorCode = [int]$ResponseHeader.StatusCode.value__
+            throw "Failed to start download $($FileName). HTTP Status Code: $($ErrorCode)"
         }
 
         # Reset this to avoid reusing the same name when fed multiple URLs via the pipeline
@@ -793,19 +849,7 @@ if (!(Test-Paths -Sp_exe)) {
 
     $jsonUrl = "https://amd64fox.github.io/LoaderSpot/versions.json"
 
-    $retries = 0
-
-    while ($retries -lt 3) {
-        try {
-            $jsonContent = Invoke-RestMethod -Uri $jsonUrl
-            break
-        }
-        catch {
-            Write-Warning "Request failed: $_"
-            $retries++
-            Start-Sleep -Seconds 3
-        }
-    }
+    $jsonContent = Invoke-Method -Method 'rest' -url $jsonUrl
 
     $resp = Version-Select -c $jsonContent
     $fullversion = $resp.name.fullversion
@@ -815,9 +859,9 @@ if (!(Test-Paths -Sp_exe)) {
     Write-Text "Download version " -n
     Write-Host "$($part)-[$($resp.arch)]" -ForegroundColor Green -NoNewline
     Write-host " ..."
-    Invoke-Download -URL $resp.link -FileName "SpotifySetup.exe" 
-  
 
+    Invoke-Method -Method 'download' -url $resp.link -namefile "SpotifySetup.exe"
+  
     $temp = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath 'SpotifySetup.exe'
 
     # Silent installation of the client
