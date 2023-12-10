@@ -636,7 +636,6 @@ Function UninstallSpMs {
 
     $osVersion = [System.Environment]::OSVersion.Version.Major
     $osFullVersion = [System.Environment]::OSVersion.Version.ToString()
-    $package = Get-AppxPackage -Name SpotifyAB.SpotifyMusic
 
     $osRes = switch ($osVersion) {
         6 { $osFullVersion -match '6.2|6.3' }
@@ -644,7 +643,7 @@ Function UninstallSpMs {
         default { $false }
     }
 
-    if ($osRes -and $package) {
+    if ($osRes -and (Get-AppxPackage -Name SpotifyAB.SpotifyMusic)) {
 
         Write-Text -txt "The Microsoft Store version of Spotify has been detected which is not supported" -e
 
