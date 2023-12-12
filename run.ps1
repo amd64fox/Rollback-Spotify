@@ -74,6 +74,64 @@ function Write-Text {
     }
 }
 
+function Check-Os {
+    param(
+        [string]$check
+    )
+
+    $osVersions = @{}
+    $osVersions["win7"] = "6.1"
+    $osVersions["win8"] = "6.2, 6.3"
+    $osVersions["win10"] = "10.0"
+
+    $currentVersion = "$(([System.Environment]::OSVersion.Version).Major).$(([System.Environment]::OSVersion.Version).Minor)"
+
+    foreach ($version in $check -split ", ") {
+        if ($osVersions.ContainsKey($version) -and $osVersions[$version] -contains $currentVersion) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Compare-Arch {
+    param(
+        [Alias("t")]
+        [string]$TargetArchitecture = $null
+    )
+
+    $CurrentArchitecture = $env:processor_architecture
+    $ArchitectureGroups = @{
+        'x64'   = @('AMD64', 'IA64', 'EM64T')
+        'x86'   = @('x86')
+        'arm64' = @('ARM64')
+    }
+
+    if (!($TargetArchitecture)) {
+        return $ArchitectureGroups.Keys | Where-Object { $ArchitectureGroups[$_] -contains $CurrentArchitecture }
+    }
+
+    $ValidArchitectures = $ArchitectureGroups.Keys
+    if (-not $ValidArchitectures.Contains($TargetArchitecture)) {
+        Write-Text -text "Error: Invalid architecture: $($TargetArchitecture)" -warning
+        return $false
+    }
+
+    # exception for x86 if the current architecture is x64
+    if ($CurrentArchitecture -eq 'AMD64' -and $TargetArchitecture -eq 'x86') {
+        return $true
+    }
+
+    # comparing the current architecture with the target
+    if ($ArchitectureGroups[$TargetArchitecture] -contains $CurrentArchitecture) {
+        return $true
+    }
+    else {
+        return $false
+    }
+}
+
 function Get-UserChoice {
     param(
         [Alias("o")]
@@ -124,19 +182,42 @@ Function Version-Select {
 
     param (
         [Alias("c")]
-        $jsonContent
+        $jsonContent,
+
+        [string]$lastWin7_8 = "1.2.5.1006"
     )
+
+
 
     if ($version) {
 
-        switch ($version) {
-            { $version -match '^\d+\.\d+\.\d+\.\d+-(x|arm)(86|64)$' } {
-                $parts = $version -split '-'
-                $ver = $parts[0]
-                $arch = $parts[1]
+        switch -Regex ($version) {
+
+            '^\d+\.\d+\.\d+\.\d+(-(x|arm)(86|64))?$' {
+
+                if ($version -match '^\d+\.\d+\.\d+\.\d+-(x|arm)(86|64)$') {
+        
+                    $parts = $version -split '-'
+                    $ver = $parts[0]
+                    $arch = $parts[1]
+                }
+                else {
+                    $ver = $version 
+                    $arch = 'x86'
+                }
+        
+                if (Check-Os "win7, win8") {
+        
+                    if ([version]$ver -gt [version]$lastWin7_8) {
+                        Write-Text -txt "version $($ver) is not supported in Windows 7 - 8.1" -w -e
+                        break
+                    }
+                }
+        
                 $link = $jsonContent.$ver.links.win.$arch
-    
-                if ($link) {
+        
+                if ($link -and $link -ne "" -and (Compare-Arch -t $arch)) {
+
                     $data = [PSCustomObject]@{
                         link = $link 
                         name = $jsonContent.$ver
@@ -144,45 +225,36 @@ Function Version-Select {
                     }
                     return $data
                 }
+            
             }
-            { $version -match '^\d+\.\d+\.\d+\.\d+$' } {
-                $link = $jsonContent.$version.links.win.x86
 
-                if ($link ) {
-    
+            "^last(-(x|arm)(86|64))?$" {
+
+                if (Check-Os "win10") {
+                    $name = $jsonContent.PSObject.Properties | Select-Object -First 1
+                }
+                else {
+                    $name = $jsonContent.PSObject.Properties | Where-Object { $_.Name -eq $lastWin7_8 }
+                }
+        
+                if ($version -match '^last-(x|arm)(86|64)$' ) {
+                    $parts = $version -split '-'
+                    $arch = $parts[1]
+                }
+                else { $arch = 'x86' }
+        
+                $link = $name.Value.links.win.$arch
+        
+                if ($link -and $link -ne "" -and (Compare-Arch -t $arch)) {
                     $data = [PSCustomObject]@{
                         link = $link 
-                        name = $jsonContent.$version
-                        arch = 'x86'
+                        name = $name.Value
+                        arch = $arch
                     }
                     return $data
                 }
             }
-            "last" {
-                $firstPair = $jsonContent.PSObject.Properties | Select-Object -First 1
-                $link = $firstPair.Value.links.win.x86
 
-                $data = [PSCustomObject]@{
-                    link = $link 
-                    name = $firstPair.Value
-                    arch = 'x86'
-                }
-                return $data
-            }
-            { $version -match '^last-(x|arm)(86|64)$' } {
-                $parts = $version -split '-'
-                $arch = $parts[1]
-
-                $firstPair = $jsonContent.PSObject.Properties | Select-Object -First 1
-                $link = $firstPair.Value.links.win.$arch
-
-                $data = [PSCustomObject]@{
-                    link = $link 
-                    name = $firstPair.Value
-                    arch = $arch
-                }
-                return $data
-            }
             default {
                 Write-Text -txt 'Invalid value for the "version" parameter' -w -e
                 break
@@ -190,16 +262,22 @@ Function Version-Select {
         }
     }
 
-    # Output the first 10 versions
-    $firstVersions = $jsonContent.PSObject.Properties | Select-Object -First 10
+    if (Check-Os "win7, win8") { 
 
+        $firstVersions = ($jsonContent.PSObject.Properties | Select-Object -Last 88) | Select-Object -First 10
+    }
+
+    else {
+        # Output the first 10 versions
+        $firstVersions = $jsonContent.PSObject.Properties | Select-Object -First 10
+    }
     # Iterate through the first 10 versions and display information
     $asd = 1 
     foreach ($version in $firstVersions) {
         Write-Host "[$($asd)] - $($version.Name)"
         $asd++
     }
-
+    
     $first10 = $true
 
     while ($true) {
@@ -208,53 +286,83 @@ Function Version-Select {
         if ($first10) { Write-Host "[S] - Show the entire list of versions" }
         Write-Host "[E] - Exit"
         $choice = Read-Host "`nChoose an action"
+        Write-Host
 
         switch ($choice) {
             { $_ -as [int] -and [int]$_ -ge 1 -and [int]$_ -le $asd - 1 } {
                 # User selects the version number
                 $selectedVersion = $firstVersions[$choice - 1].Name
 
-                while ($true) {
-                    Write-Text -txt "[1] - x86 `n[2] - x64 `n[3] - arm64" -f
-                    $choice = Read-Host "`nChoose version architecture"
-                    Write-Host
-                    switch ($choice) {
-                        { $_ -in '1', '2', '3' } {
-                            switch ($choice) {
-                                '1' { $choice = 'x86' }
-                                '2' { $choice = 'x64' }
-                                '3' { $choice = 'arm64' }
-                                default { $choice = 'x86' }
-                            }
-                            $ready_link = $jsonContent.$selectedVersion.links.win.[string]$choice
-                            if ($ready_link -ne $null -and $ready_link -ne "") {
-
-                                $data = [PSCustomObject]@{
-                                    link = $ready_link
-                                    name = $jsonContent.$selectedVersion
-                                    arch = $choice
-                                }
-                                return $data
-                            }             
-                            Write-Warning "Architecture $($choice) not found for this version" 
-                        }
-                        default {
-                            Write-Warning "Incorrect input"
-                        }
-                    }
+                $archtest = $jsonContent.$selectedVersion.links.win
+                $availableArchitectures = @()
+                $index = 1
+                $archMapping = @{} 
+            
+                if ($archtest.x86) {
+                    $availableArchitectures += "[$index] - x86"
+                    $archMapping[$index.ToString()] = 'x86'
+                    $index++
                 }
+                if ($archtest.x64) {
+                    $availableArchitectures += "[$index] - x64"
+                    $archMapping[$index.ToString()] = 'x64'
+                    $index++
+                }
+                if ($archtest.arm64) {
+                    $availableArchitectures += "[$index] - arm64"
+                    $archMapping[$index.ToString()] = 'arm64'
+                }
+                do {
+                    if ($availableArchitectures.Count -match '(2|3)') {
 
+                        Write-Text -txt "`nChoose version architecture:`n`n$($availableArchitectures -join "`n")"
+                        $choice = Read-Host "`nEnter your choice"
+                        Write-Host
+                        $selectedArchitecture = $archMapping[$choice]
+                
+                        if (!($selectedArchitecture)) {
+                            Write-Warning "Incorrect input. Please choose a valid option."
+                        } 
+                    }
+                    else { $selectedArchitecture = $archMapping['1'] }
+
+                    if (Compare-Arch -t $selectedArchitecture ) {
+                        $ready_link = $jsonContent.$selectedVersion.links.win.[string]$selectedArchitecture 
+                        if ($ready_link -ne $null -and $ready_link -ne "") {
+
+                            $data = [PSCustomObject]@{
+                                link = $ready_link
+                                name = $jsonContent.$selectedVersion
+                                arch = $selectedArchitecture 
+                            }
+                            return $data
+                        }                              
+                    }
+                    else {
+                        Write-Text -txt "Selected $($selectedArchitecture) architecture does not match the $(Compare-Arch) architecture of your OS" -w
+                        $selectedArchitecture = $false
+                    }
+                            
+                } while (-not $selectedArchitecture)
             }
             { $first10 -eq $true -and $_ -eq "s" } {
                 # Show the entire list of versions
                 cls
                 $asd = 1
-                foreach ($version in $jsonContent.PSObject.Properties) {
+
+                if (Check-Os "win7, win8") { 
+                    $firstVersions = $jsonContent.PSObject.Properties | Select-Object -Last 88
+                }
+                else {
+
+                    $firstVersions = $jsonContent.PSObject.Properties
+                }
+                foreach ($version in $firstVersions) {
                     Write-Host "$($asd)) $($version.Name)"
                     $asd++
                 }
-                $Count = $jsonContent.PSObject.Properties | Measure-Object | Select-Object -ExpandProperty Count
-                $firstVersions = $jsonContent.PSObject.Properties | Select-Object -First $Count
+                $Count = $firstVersions | Measure-Object | Select-Object -ExpandProperty Count
+                $firstVersions = $firstVersions | Select-Object -First $Count
                 $first10 = $false
                 break
             }
@@ -634,16 +742,7 @@ Function UninstallSpMs {
         Import-Module Appx -UseWindowsPowerShell -WarningAction:SilentlyContinue
     }
 
-    $osVersion = [System.Environment]::OSVersion.Version.Major
-    $osFullVersion = [System.Environment]::OSVersion.Version.ToString()
-
-    $osRes = switch ($osVersion) {
-        6 { $osFullVersion -match '6.2|6.3' }
-        10 { $osFullVersion -match '10.0' }
-        default { $false }
-    }
-
-    if ($osRes -and (Get-AppxPackage -Name SpotifyAB.SpotifyMusic)) {
+    if ((Check-Os "win8, win10") -and (Get-AppxPackage -Name SpotifyAB.SpotifyMusic)) {
 
         Write-Text -txt "The Microsoft Store version of Spotify has been detected which is not supported" -e
 
