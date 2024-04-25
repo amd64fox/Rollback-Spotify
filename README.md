@@ -8,22 +8,22 @@
 
 ***
 
-just download and run [Rollback.bat](https://raw.githack.com/amd64fox/Rollback-Spotify/main/Rollback.bat)
+just download and run [Rollback-Spotify.bat](https://raw.githack.com/amd64fox/Rollback-Spotify/main/Rollback-Spotify.bat)
     - or run The following command in PowerShell:
 ```ps1
-[Net.ServicePointManager]::SecurityProtocol = 3072; iwr -useb 'https://amd64fox.github.io/Rollback-Spotify/run.ps1' | iex
+iwr -useb 'https://amd64fox.github.io/Rollback-Spotify/run.ps1' | iex
 ```
 
 or specific version
 
 ```ps1
-[Net.ServicePointManager]::SecurityProtocol = 3072; iex "& { $(iwr -useb 'https://amd64fox.github.io/Rollback-Spotify/run.ps1') } -version 1.2.24.756-x64"
+iex "& { $(iwr -useb 'https://amd64fox.github.io/Rollback-Spotify/run.ps1') } -version 1.2.24.756-x64"
 ```
 
 or latest version x86/x64/arm64
 
 ```ps1
-[Net.ServicePointManager]::SecurityProtocol = 3072; iex "& { $(iwr -useb 'https://amd64fox.github.io/Rollback-Spotify/run.ps1') } -version last-x64"
+iex "& { $(iwr -useb 'https://amd64fox.github.io/Rollback-Spotify/run.ps1') } -version last-x64"
 ```
 
 ## Credits

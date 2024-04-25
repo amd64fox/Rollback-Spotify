@@ -203,7 +203,7 @@ Function Version-Select {
                 }
                 else {
                     $ver = $version 
-                    $arch = 'x86'
+                    $arch = Compare-Arch
                 }
         
                 if (Check-Os "win7, win8") {
@@ -241,7 +241,7 @@ Function Version-Select {
                     $parts = $version -split '-'
                     $arch = $parts[1]
                 }
-                else { $arch = 'x86' }
+                else { $arch = Compare-Arch }
         
                 $link = $name.Value.links.win.$arch
         
