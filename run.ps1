@@ -943,9 +943,10 @@ if (Test-Paths -Sp_exe ) {
 
 if (!(Test-Paths -Sp_exe)) {
 
-    [Net.ServicePointManager]::SecurityProtocol = 3072
+    # add Tls12
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;
 
-    $jsonUrl = "https://amd64fox.github.io/LoaderSpot/versions.json"
+    $jsonUrl = "https://raw.githubusercontent.com/amd64fox/LoaderSpot/refs/heads/main/versions.json"
 
     $jsonContent = Invoke-Method -Method 'rest' -url $jsonUrl
 
