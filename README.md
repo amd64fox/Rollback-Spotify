@@ -1,5 +1,5 @@
 <p align="center">
-      <a href="https://cutt.ly/8EH6NuH"><img src="https://raw.githubusercontent.com/amd64fox/Rollback-Spotify/main/.github/Pic/Shields/excel.svg"></a>
+      <a href="https://loadspot.pages.dev"><img src="https://raw.githubusercontent.com/amd64fox/Rollback-Spotify/main/.github/Pic/Shields/excel.svg"></a>
       </p>
 <center>
     <h1 align="center">Rollback Spotify</h1>
