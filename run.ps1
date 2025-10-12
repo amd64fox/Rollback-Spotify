@@ -704,7 +704,7 @@ function Invoke-Download {
                             }
                             if ($LastModified -and -not $IgnoreDate) {
                                 Write-Verbose 'Setting Last Modified date'
-                            (Get-Item -LiteralPath $DestinationFilePath).LastWriteTime = $LastModified
+                                (Get-Item -LiteralPath $DestinationFilePath).LastWriteTime = $LastModified
                             }
                             Write-Verbose 'Download complete!'
                             break
@@ -864,21 +864,118 @@ function UninstallSp {
 
 }
 
+
 function BlockUpdate {
 
     Kill-Spotify
 
+    # Get Spotify version
     $spotifyexe = "$spRoaming\Spotify.exe"
-    $exe_bak = Join-Path $env:APPDATA 'Spotify\Spotify.bak'
+    $currentVersion = (Get-Item $spotifyexe).VersionInfo.FileVersion
+    $thresholdVersion = [version]"1.2.70.404"
+    $installedVersion = [version]$currentVersion
+
+    # Determine which file to patch based on version
+    if ($installedVersion -ge $thresholdVersion) {
+        # Patch Spotify.dll for version >= 1.2.70.404
+        $targetFile = "$spRoaming\Spotify.dll"
+        
+        # Define backup files for new version
+        $backupDll = Join-Path $env:APPDATA 'Spotify\Spotify_dll.bak'
+        $backupExe = Join-Path $env:APPDATA 'Spotify\Spotify_exe.bak'
+        $backupElf = Join-Path $env:APPDATA 'Spotify\chrome_elf.bak'
+        
+        # Check if backups exist (meaning patch is already applied)
+        if ((Test-Path $backupDll) -and (Test-Path $backupExe) -and (Test-Path $backupElf)) {
+            Write-Text -txt "Spotify updates are already blocked" -e
+            
+            $options = @{
+                "question"    = "Do you want to unlock updates?"
+                "answer"      = @("Yes", "No")
+                "description" = @("Unlock native Spotify client updates", "Continue to block native Spotify updates")
+            }
+            $ch = Get-UserChoice -o $options
+            
+            if ($ch -eq 0) {
+                # Restore from backups
+                Remove-Item "$spRoaming\Spotify.dll" -Force -ErrorAction SilentlyContinue
+                Remove-Item "$spRoaming\Spotify.exe" -Force -ErrorAction SilentlyContinue
+                Remove-Item "$spRoaming\chrome_elf.dll" -Force -ErrorAction SilentlyContinue
+                
+                Rename-Item -Path $backupDll -NewName "$spRoaming\Spotify.dll"
+                Rename-Item -Path $backupExe -NewName "$spRoaming\Spotify.exe"
+                Rename-Item -Path $backupElf -NewName "$spRoaming\chrome_elf.dll"
+                
+                Write-Text -txt "Updates unlocked" -e
+                return
+            }
+            if ($ch -eq 1) {
+                Write-Text -txt "Updates remained blocked" -e
+                return
+            }
+        }
+        
+        # Check if target files exist
+        if (-not (Test-Path $targetFile)) {
+            Write-Text -txt "Failed to find Spotify.dll file for patching" -w -t
+            return
+        }
+        if (-not (Test-Path "$spRoaming\Spotify.exe")) {
+            Write-Text -txt "Failed to find Spotify.exe file for patching" -w -t
+            return
+        }
+        if (-not (Test-Path "$spRoaming\chrome_elf.dll")) {
+            Write-Text -txt "Failed to find chrome_elf.dll file for patching" -w -t
+            return
+        }
+        
+        # Create backups before patching
+        Copy-Item "$spRoaming\Spotify.dll" $backupDll -Force
+        Copy-Item "$spRoaming\Spotify.exe" $backupExe -Force
+        Copy-Item "$spRoaming\chrome_elf.dll" $backupElf -Force
+        
+        # Apply patches for signature reset
+        Reset-Dll-Sign -FilePath $targetFile
+        $files = @("Spotify.dll", "Spotify.exe", "chrome_elf.dll")
+        Remove-Signature-FromFiles $files
+        
+        # Apply URL patch to block updates in Spotify.dll
+        $ANSI = [Text.Encoding]::GetEncoding(1251)
+        $natPtrn = "(?<=desktop-update\/.)7(\/update)"
+        $modPtrn = "(?<=desktop-update\/.)2(\/update)"
+        
+        $dllContent = [IO.File]::ReadAllText("$spRoaming\Spotify.dll", $ANSI)
+        if ($dllContent -match $modPtrn) {
+            $newDllContent = $dllContent -replace $modPtrn, '7/update'
+            [IO.File]::WriteAllText("$spRoaming\Spotify.dll", $newDllContent, $ANSI)
+            Write-Text -txt "Updates blocked" -f
+        }
+        else {
+            Write-Text -txt "Failed to find update URL pattern in Spotify.dll" -w -t
+        }
+        return
+    }
+    else {
+        # Patch Spotify.exe for version < 1.2.70.404
+        $targetFile = "$spRoaming\Spotify.exe"
+        $backupFile = Join-Path $env:APPDATA 'Spotify\Spotify.bak'
+    }
+
+    # Check if target file exists
+    if (-not (Test-Path $targetFile)) {
+        $fileName = Split-Path $targetFile -Leaf
+        Write-Text -txt "Failed to find $fileName file for patching" -w -t
+        return
+    }
 
     $ANSI = [Text.Encoding]::GetEncoding(1251)
-    $old = [IO.File]::ReadAllText($spotifyexe, $ANSI)
+    $old = [IO.File]::ReadAllText($targetFile, $ANSI)
     $natPtrn = "(?<=desktop-update\/.)7(\/update)"
     $modPtrn = "(?<=desktop-update\/.)2(\/update)"
 
     if ($old -match $natPtrn) {
         Write-Text -txt "Spotify updates are already blocked" -e
-        if (Test-Path -Path $exe_bak) {
+        if (Test-Path -Path $backupFile) {
             $options = @{
                 "question"    = "Do you want to unlock updates?"
                 "answer"      = @("Yes", "No")
@@ -886,8 +983,8 @@ function BlockUpdate {
             }
             $ch = Get-UserChoice -o $options
             if ($ch -eq 0) {   
-                Remove-item $spotifyexe -Force
-                Rename-Item -path $exe_bak -NewName $spotifyexe
+                Remove-item $targetFile -Force
+                Rename-Item -path $backupFile -NewName $targetFile
                 Write-Text -txt "Updates unlocked" -e
                 return
             }
@@ -897,20 +994,204 @@ function BlockUpdate {
             }
         }
 
-        Write-Warning "Failed to find backup file Spotify.exe, to unlock updates, reinstall Spotify manually"
+        Write-Warning "Failed to find backup file, to unlock updates, reinstall Spotify manually"
         return
     }
     elseif ($old -match $modPtrn) {
-        copy-Item $spotifyexe $exe_bak
+        copy-Item $targetFile $backupFile
         $new = $old -replace $modPtrn, '7/update'
-        [IO.File]::WriteAllText($spotifyexe, $new, $ANSI)
-        Write-Text -txt "Updates blocked" -t
+        [IO.File]::WriteAllText($targetFile, $new, $ANSI)
+        $fileName = Split-Path $targetFile -Leaf
+        Write-Text -txt "Updates blocked" -f
     }
     else {
         Write-Text -txt "Failed to block updates" -w -t
     }
 
 }
+
+function Reset-Dll-Sign {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath
+    )
+
+    # convert hex string to byte array
+    function ConvertTo-ByteArray {
+        param([string]$HexString)
+        return [byte[]]($HexString -split ' ' | ForEach-Object { [Convert]::ToByte($_, 16) })
+    }
+
+    # byte patterns for x64 arch
+    $searchPattern_x64 = '30 01 00 00 5B C3 CC CC 48 89 5C 24 18 55'
+    $replacePattern_x64 = 'B8 01 00 00 00 C3'
+    $bytesToReplaceCount_x64 = 6
+    
+    # byte patterns for ARM64 arch
+    $searchPattern_ARM64 = 'E0 03 13 AA FD 7B D3 A8 F3 07 41 F8 C0 03 5F D6 61 00 00 D4 00 00 00 00 FD 7B BA A9 F3 53 01 A9'
+    $replacePattern_ARM64 = '20 00 80 52 C0 03 5F D6'
+    $bytesToReplaceCount_ARM64 = 8
+
+    if (-not (Test-Path $FilePath -PathType Leaf)) {
+        Write-Error "File not found at path: $FilePath"
+        Write-Host ($lang).StopScript
+        Pause
+        Exit
+    }
+
+    $fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
+    $peHeaderOffset = [System.BitConverter]::ToUInt32($fileBytes, 0x3C)
+    $fileHeaderOffset = $peHeaderOffset + 4
+    $archInfo = Get-PEArchitectureOffsets -bytes $fileBytes -fileHeaderOffset $fileHeaderOffset
+    
+    if ($archInfo.Architecture -eq 'ARM64') {
+        $searchPattern = ConvertTo-ByteArray $searchPattern_ARM64
+        $replacePattern = ConvertTo-ByteArray $replacePattern_ARM64
+        $bytesToReplaceCount = $bytesToReplaceCount_ARM64
+        Write-Verbose "Using ARM64 byte patterns"
+    }
+    else {
+        $searchPattern = ConvertTo-ByteArray $searchPattern_x64
+        $replacePattern = ConvertTo-ByteArray $replacePattern_x64
+        $bytesToReplaceCount = $bytesToReplaceCount_x64
+        Write-Verbose "Using x64 byte patterns"
+    }
+
+    try {
+        Write-Verbose "Reading file..."
+        $fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
+        Write-Verbose "File read. Size: $($fileBytes.Length) bytes."
+        
+        $offset = -1
+        $searchLimit = $fileBytes.Length - $searchPattern.Length
+        
+        Write-Verbose "Searching for byte sequence..."
+        for ($i = 0; $i -le $searchLimit; $i++) {
+            $match = $true
+            for ($j = 0; $j -lt $searchPattern.Length; $j++) {
+                if ($fileBytes[$i + $j] -ne $searchPattern[$j]) {
+                    $match = $false
+                    break
+                }
+            }
+            if ($match) {
+                $offset = $i
+                break
+            }
+        }
+        
+        if ($offset -eq -1) {
+            Write-Warning "Required byte sequence not found for the signature reset patch"
+            Write-Warning "Spotify Version: $offline | Architecture: $($archInfo.Architecture)"
+            Write-Host ($lang).StopScript
+            Pause
+            Exit
+        }
+        
+        Write-Verbose "Sequence found at offset: 0x$($offset.ToString('X'))"
+        
+        $patchOffset = $offset + ($searchPattern.Length - $bytesToReplaceCount)
+        
+        Write-Verbose "Applying patch at offset: 0x$($patchOffset.ToString('X'))"
+        
+        for ($i = 0; $i -lt $replacePattern.Length; $i++) {
+            $fileBytes[$patchOffset + $i] = $replacePattern[$i]
+        }
+        
+        Write-Verbose "Writing patched file..."
+        [System.IO.File]::WriteAllBytes($FilePath, $fileBytes)
+
+    }
+    catch {
+        Write-Error "An error occurred: $_"
+        Write-Host ($lang).StopScript
+        Pause
+        Exit
+    }
+}
+
+function Get-PEArchitectureOffsets {
+    param(
+        [byte[]]$bytes,
+        [int]$fileHeaderOffset
+    )
+    $machineType = [System.BitConverter]::ToUInt16($bytes, $fileHeaderOffset)
+    $result = @{ Architecture = $null; DataDirectoryOffset = 0 }
+    switch ($machineType) {
+        0x8664 { $result.Architecture = 'x64'; $result.DataDirectoryOffset = 112 }
+        0xAA64 { $result.Architecture = 'ARM64'; $result.DataDirectoryOffset = 112 }
+        0x014c { $result.Architecture = 'x86'; $result.DataDirectoryOffset = 96 }
+        default { $result.Architecture = 'Unknown'; $result.DataDirectoryOffset = $null }
+    }
+    $result.MachineType = $machineType
+    return $result
+}
+
+function Remove-Sign([string]$filePath) {
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($filePath)
+        $peHeaderOffset = [System.BitConverter]::ToUInt32($bytes, 0x3C)
+        if ($bytes[$peHeaderOffset] -ne 0x50 -or $bytes[$peHeaderOffset + 1] -ne 0x45) {
+            Write-Warning "File '$(Split-Path $filePath -Leaf)' is not a valid PE file."
+            return $false
+        }
+        $fileHeaderOffset = $peHeaderOffset + 4
+        $optionalHeaderOffset = $fileHeaderOffset + 20
+        $archInfo = Get-PEArchitectureOffsets -bytes $bytes -fileHeaderOffset $fileHeaderOffset
+        if ($archInfo.DataDirectoryOffset -eq $null) {
+            Write-Warning "Unsupported architecture type ($($archInfo.MachineType.ToString('X'))) in file '$(Split-Path $filePath -Leaf)'."
+            return $false
+        }
+        $dataDirectoryOffsetWithinOptionalHeader = $archInfo.DataDirectoryOffset
+        $securityDirectoryIndex = 4
+        $certificateTableEntryOffset = $optionalHeaderOffset + $dataDirectoryOffsetWithinOptionalHeader + ($securityDirectoryIndex * 8)
+        if ($certificateTableEntryOffset + 8 -gt $bytes.Length) {
+            Write-Warning "Could not find Data Directory in file '$(Split-Path $filePath -Leaf)'. Header is corrupted or has non-standard format."
+            return $false
+        }
+        $rva = [System.BitConverter]::ToUInt32($bytes, $certificateTableEntryOffset)
+        $size = [System.BitConverter]::ToUInt32($bytes, $certificateTableEntryOffset + 4)
+        if ($rva -eq 0 -and $size -eq 0) {
+            Write-Host "Signature in file '$(Split-Path $filePath -Leaf)' is already absent." -ForegroundColor Yellow
+            return $true
+        }
+        for ($i = 0; $i -lt 8; $i++) {
+            $bytes[$certificateTableEntryOffset + $i] = 0
+        }
+        [System.IO.File]::WriteAllBytes($filePath, $bytes)
+        return $true
+    }
+    catch {
+        Write-Error "Error processing file '$filePath': $_"
+        return $false
+    }
+}
+
+function Remove-Signature-FromFiles([string[]]$fileNames) {
+    foreach ($fileName in $fileNames) {
+        $fullPath = Join-Path -Path $spRoaming -ChildPath $fileName
+        if (-not (Test-Path $fullPath)) {
+            Write-Error "File not found: $fullPath"
+            Write-Host ($lang).StopScript
+            Pause
+            Exit
+        }
+        try {
+            Write-Verbose "Processing file: $fileName"
+            if (Remove-Sign -filePath $fullPath) {
+                Write-Verbose "  -> Signature entry successfully zeroed."
+            }
+        }
+        catch {
+            Write-Error "Failed to process file '$fileName': $_"
+            Write-Host ($lang).StopScript
+            Pause
+            Exit
+        }
+    }
+}
+
+
 
 Write-Text -txt 'Rollback Spotify' -f -c 'DarkGreen'
 Write-Text -txt '----------------' -e -c 'DarkGreen' 
@@ -946,7 +1227,7 @@ if (!(Test-Paths -Sp_exe)) {
     # add Tls12
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;
 
-    $jsonUrl = "https://raw.githubusercontent.com/amd64fox/LoaderSpot/refs/heads/main/versions.json"
+    $jsonUrl = "https://raw.githubusercontent.com/LoaderSpot/LoaderSpot/refs/heads/main/versions.json"
 
     $jsonContent = Invoke-Method -Method 'rest' -url $jsonUrl
 
