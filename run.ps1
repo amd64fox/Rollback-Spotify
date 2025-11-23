@@ -7,7 +7,10 @@ param (
     [switch]$uninstall,
 
     [Alias("n")]
-    [switch]$not_block
+    [switch]$not_block,
+
+    [Alias("b")]
+    [string]$buildtype = "Release"
 )
 
 function Test-Paths {
@@ -262,14 +265,19 @@ Function Version-Select {
         }
     }
 
-    if (Check-Os "win7, win8") { 
+    $allVersions = $jsonContent.PSObject.Properties
+    if ($buildtype -ne "all") {
+        $allVersions = $allVersions | Where-Object { $_.Value.buildType -ieq $buildtype }
+    }
 
-        $firstVersions = ($jsonContent.PSObject.Properties | Select-Object -Last 88) | Select-Object -First 10
+    if (Check-Os "win7, win8") {
+
+        $firstVersions = ($allVersions | Select-Object -Last 88) | Select-Object -First 10
     }
 
     else {
         # Output the first 10 versions
-        $firstVersions = $jsonContent.PSObject.Properties | Select-Object -First 10
+        $firstVersions = $allVersions | Select-Object -First 10
     }
     # Iterate through the first 10 versions and display information
     $asd = 1 
@@ -350,12 +358,12 @@ Function Version-Select {
                 cls
                 $asd = 1
 
-                if (Check-Os "win7, win8") { 
-                    $firstVersions = $jsonContent.PSObject.Properties | Select-Object -Last 88
+                if (Check-Os "win7, win8") {
+                    $firstVersions = $allVersions | Select-Object -Last 88
                 }
                 else {
 
-                    $firstVersions = $jsonContent.PSObject.Properties
+                    $firstVersions = $allVersions
                 }
                 foreach ($version in $firstVersions) {
                     Write-Host "$($asd)) $($version.Name)"
