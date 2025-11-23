@@ -234,10 +234,18 @@ Function Version-Select {
             "^last(-(x|arm)(86|64))?$" {
 
                 if (Check-Os "win10") {
-                    $name = $jsonContent.PSObject.Properties | Select-Object -First 1
+                    $filteredVersions = $jsonContent.PSObject.Properties
+                    if ($buildtype -ne "all") {
+                        $filteredVersions = $filteredVersions | Where-Object { $_.Value.buildType -ieq $buildtype }
+                    }
+                    $name = $filteredVersions | Select-Object -First 1
                 }
                 else {
-                    $name = $jsonContent.PSObject.Properties | Where-Object { $_.Name -eq $lastWin7_8 }
+                    $filteredVersions = $jsonContent.PSObject.Properties
+                    if ($buildtype -ne "all") {
+                        $filteredVersions = $filteredVersions | Where-Object { $_.Value.buildType -ieq $buildtype }
+                    }
+                    $name = $filteredVersions | Where-Object { $_.Name -eq $lastWin7_8 }
                 }
         
                 if ($version -match '^last-(x|arm)(86|64)$' ) {
