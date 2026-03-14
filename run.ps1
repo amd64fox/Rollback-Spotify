@@ -13,6 +13,10 @@ param (
     [string]$buildtype = "Release"
 )
 
+Write-Host "This script is temporarily unavailable" -ForegroundColor Yellow
+Pause
+exit
+
 function Test-Paths {
     param (
         [switch]$Sp_exe,
