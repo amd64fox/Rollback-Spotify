@@ -7,15 +7,8 @@ param (
     [switch]$uninstall,
 
     [Alias("n")]
-    [switch]$not_block,
-
-    [Alias("b")]
-    [string]$buildtype = "Release"
+    [switch]$not_block
 )
-
-Write-Host "This script is temporarily unavailable" -ForegroundColor Yellow
-Pause
-exit
 
 function Test-Paths {
     param (
@@ -81,15 +74,28 @@ function Write-Text {
     }
 }
 
+$script:SupportedArchitectures = @('x86', 'x64', 'arm64')
+
+function Stop-Script {
+    param(
+        [string]$Message = "script stopped"
+    )
+
+    Write-Text -txt $Message -w -f
+    Pause
+    exit
+}
+
 function Check-Os {
     param(
         [string]$check
     )
 
-    $osVersions = @{}
-    $osVersions["win7"] = "6.1"
-    $osVersions["win8"] = "6.2, 6.3"
-    $osVersions["win10"] = "10.0"
+    $osVersions = @{
+        "win7"  = @("6.1")
+        "win8"  = @("6.2", "6.3")
+        "win10" = @("10.0")
+    }
 
     $currentVersion = "$(([System.Environment]::OSVersion.Version).Major).$(([System.Environment]::OSVersion.Version).Minor)"
 
@@ -137,6 +143,160 @@ function Compare-Arch {
     else {
         return $false
     }
+}
+
+function Get-PropertyValue {
+    param(
+        $Object,
+
+        [string]$Name
+    )
+
+    if ($null -eq $Object) {
+        return $null
+    }
+
+    $property = $Object.PSObject.Properties[$Name]
+    if ($property) {
+        return $property.Value
+    }
+
+    return $null
+}
+
+function Get-NormalizedWinLinks {
+    param(
+        $WinSource
+    )
+
+    $windowsLinks = [ordered]@{}
+
+    foreach ($architecture in $script:SupportedArchitectures) {
+        $linkValue = ""
+        $architectureData = Get-PropertyValue -Object $WinSource -Name $architecture
+
+        if ($architectureData -is [string]) {
+            $linkValue = [string]$architectureData
+        }
+        else {
+            $linkValue = [string](Get-PropertyValue -Object $architectureData -Name 'url')
+        }
+
+        $windowsLinks[$architecture] = if ($linkValue) { $linkValue } else { "" }
+    }
+
+    return [PSCustomObject]$windowsLinks
+}
+
+function Convert-VersionManifest {
+    param(
+        $Manifest
+    )
+
+    $normalizedManifest = [ordered]@{}
+
+    foreach ($versionProperty in $Manifest.PSObject.Properties) {
+        $versionData = $versionProperty.Value
+        $winSource = Get-PropertyValue -Object $versionData -Name 'win'
+        $fullVersion = [string](Get-PropertyValue -Object $versionData -Name 'fullversion')
+
+        $normalizedManifest[$versionProperty.Name] = [PSCustomObject]@{
+            fullversion = if ($fullVersion) { $fullVersion } else { $versionProperty.Name }
+            links       = [PSCustomObject]@{
+                win = Get-NormalizedWinLinks -WinSource $winSource
+            }
+        }
+    }
+
+    return [PSCustomObject]$normalizedManifest
+}
+
+function Get-VersionManifest {
+    param(
+        [string]$PrimaryUrl
+    )
+
+    $orderedManifest = [ordered]@{}
+    $manifest = Convert-VersionManifest -Manifest (Invoke-RestWithRetry -Url $PrimaryUrl)
+
+    $sortedEntries = foreach ($entry in $manifest.PSObject.Properties) {
+        $sortVersion = [version]'0.0.0.0'
+        try {
+            $sortVersion = [version]$entry.Name
+        }
+        catch {
+        }
+
+        [PSCustomObject]@{
+            Name        = $entry.Name
+            SortVersion = $sortVersion
+            Value       = $entry.Value
+        }
+    }
+
+    foreach ($entry in $sortedEntries | Sort-Object -Property SortVersion, Name -Descending) {
+        $orderedManifest[$entry.Name] = $entry.Value
+    }
+
+    return [PSCustomObject]$orderedManifest
+}
+
+function Get-CompatibleVersionEntries {
+    param(
+        $JsonContent,
+        [string]$LastWin7_8 = "1.2.5.1006"
+    )
+
+    $allVersions = @($JsonContent.PSObject.Properties)
+    if (-not (Check-Os "win7, win8")) {
+        return $allVersions
+    }
+
+    $cutoffVersion = [version]$LastWin7_8
+    return @(
+        $allVersions | Where-Object {
+            try {
+                [version]$_.Name -le $cutoffVersion
+            }
+            catch {
+                $false
+            }
+        }
+    )
+}
+
+function Try-ResolveVersionSelection {
+    param(
+        $VersionEntry,
+        [string]$Architecture
+    )
+
+    if (-not $VersionEntry -or -not (Compare-Arch -t $Architecture)) {
+        return $null
+    }
+
+    $link = [string](Get-PropertyValue -Object $VersionEntry.links.win -Name $Architecture)
+    if (-not $link) {
+        return $null
+    }
+
+    return [PSCustomObject]@{
+        link = $link
+        name = $VersionEntry
+        arch = $Architecture
+    }
+}
+
+function Get-AvailableVersionArchitectures {
+    param(
+        $VersionEntry
+    )
+
+    return @(
+        $script:SupportedArchitectures | Where-Object {
+            [string](Get-PropertyValue -Object $VersionEntry.links.win -Name $_)
+        }
+    )
 }
 
 function Get-UserChoice {
@@ -196,6 +356,11 @@ Function Version-Select {
 
 
 
+    $compatibleVersions = @(Get-CompatibleVersionEntries -JsonContent $jsonContent -LastWin7_8 $lastWin7_8)
+    if (-not $compatibleVersions) {
+        Stop-Script -Message "No compatible versions found"
+    }
+
     if ($version) {
 
         switch -Regex ($version) {
@@ -221,53 +386,32 @@ Function Version-Select {
                     }
                 }
         
-                $link = $jsonContent.$ver.links.win.$arch
-        
-                if ($link -and $link -ne "" -and (Compare-Arch -t $arch)) {
+                $selectedEntry = Get-PropertyValue -Object $jsonContent -Name $ver
+                $data = Try-ResolveVersionSelection -VersionEntry $selectedEntry -Architecture $arch
 
-                    $data = [PSCustomObject]@{
-                        link = $link 
-                        name = $jsonContent.$ver
-                        arch = $arch
-                    }
+                if ($data) {
                     return $data
                 }
+
+                Stop-Script -Message "Selected version or architecture is unavailable"
             
             }
 
             "^last(-(x|arm)(86|64))?$" {
-
-                if (Check-Os "win10") {
-                    $filteredVersions = $jsonContent.PSObject.Properties
-                    if ($buildtype -ne "all") {
-                        $filteredVersions = $filteredVersions | Where-Object { $_.Value.buildType -ieq $buildtype }
-                    }
-                    $name = $filteredVersions | Select-Object -First 1
-                }
-                else {
-                    $filteredVersions = $jsonContent.PSObject.Properties
-                    if ($buildtype -ne "all") {
-                        $filteredVersions = $filteredVersions | Where-Object { $_.Value.buildType -ieq $buildtype }
-                    }
-                    $name = $filteredVersions | Where-Object { $_.Name -eq $lastWin7_8 }
-                }
+                $selectedEntry = ($compatibleVersions | Select-Object -First 1).Value
         
                 if ($version -match '^last-(x|arm)(86|64)$' ) {
                     $parts = $version -split '-'
                     $arch = $parts[1]
                 }
                 else { $arch = Compare-Arch }
-        
-                $link = $name.Value.links.win.$arch
-        
-                if ($link -and $link -ne "" -and (Compare-Arch -t $arch)) {
-                    $data = [PSCustomObject]@{
-                        link = $link 
-                        name = $name.Value
-                        arch = $arch
-                    }
+
+                $data = Try-ResolveVersionSelection -VersionEntry $selectedEntry -Architecture $arch
+                if ($data) {
                     return $data
                 }
+
+                Stop-Script -Message "Latest compatible version is unavailable for the selected architecture"
             }
 
             default {
@@ -275,22 +419,13 @@ Function Version-Select {
                 break
             }
         }
+
+        Stop-Script -Message "Requested version is unavailable"
     }
 
-    $allVersions = $jsonContent.PSObject.Properties
-    if ($buildtype -ne "all") {
-        $allVersions = $allVersions | Where-Object { $_.Value.buildType -ieq $buildtype }
-    }
+    $allVersions = $compatibleVersions
+    $firstVersions = $allVersions | Select-Object -First 10
 
-    if (Check-Os "win7, win8") {
-
-        $firstVersions = ($allVersions | Select-Object -Last 88) | Select-Object -First 10
-    }
-
-    else {
-        # Output the first 10 versions
-        $firstVersions = $allVersions | Select-Object -First 10
-    }
     # Iterate through the first 10 versions and display information
     $asd = 1 
     foreach ($version in $firstVersions) {
@@ -312,26 +447,17 @@ Function Version-Select {
             { $_ -as [int] -and [int]$_ -ge 1 -and [int]$_ -le $asd - 1 } {
                 # User selects the version number
                 $selectedVersion = $firstVersions[$choice - 1].Name
-
-                $archtest = $jsonContent.$selectedVersion.links.win
-                $availableArchitectures = @()
+                $selectedEntry = $firstVersions[$choice - 1].Value
+                $availableArchitectures = @(Get-AvailableVersionArchitectures -VersionEntry $selectedEntry)
                 $index = 1
                 $archMapping = @{} 
             
-                if ($archtest.x86) {
-                    $availableArchitectures += "[$index] - x86"
-                    $archMapping[$index.ToString()] = 'x86'
+                foreach ($architecture in $availableArchitectures) {
+                    $availableArchitectures[$index - 1] = "[$index] - $architecture"
+                    $archMapping[$index.ToString()] = $architecture
                     $index++
                 }
-                if ($archtest.x64) {
-                    $availableArchitectures += "[$index] - x64"
-                    $archMapping[$index.ToString()] = 'x64'
-                    $index++
-                }
-                if ($archtest.arm64) {
-                    $availableArchitectures += "[$index] - arm64"
-                    $archMapping[$index.ToString()] = 'arm64'
-                }
+
                 do {
                     if ($availableArchitectures.Count -match '(2|3)') {
 
@@ -347,16 +473,12 @@ Function Version-Select {
                     else { $selectedArchitecture = $archMapping['1'] }
 
                     if (Compare-Arch -t $selectedArchitecture ) {
-                        $ready_link = $jsonContent.$selectedVersion.links.win.[string]$selectedArchitecture 
-                        if ($ready_link -ne $null -and $ready_link -ne "") {
-
-                            $data = [PSCustomObject]@{
-                                link = $ready_link
-                                name = $jsonContent.$selectedVersion
-                                arch = $selectedArchitecture 
-                            }
+                        $data = Try-ResolveVersionSelection -VersionEntry $selectedEntry -Architecture $selectedArchitecture
+                        if ($data) {
                             return $data
-                        }                              
+                        }
+
+                        $selectedArchitecture = $false
                     }
                     else {
                         Write-Text -txt "Selected $($selectedArchitecture) architecture does not match the $(Compare-Arch) architecture of your OS" -w
@@ -369,14 +491,7 @@ Function Version-Select {
                 # Show the entire list of versions
                 cls
                 $asd = 1
-
-                if (Check-Os "win7, win8") {
-                    $firstVersions = $allVersions | Select-Object -Last 88
-                }
-                else {
-
-                    $firstVersions = $allVersions
-                }
+                $firstVersions = $allVersions
                 foreach ($version in $firstVersions) {
                     Write-Host "$($asd)) $($version.Name)"
                     $asd++
@@ -387,10 +502,7 @@ Function Version-Select {
                 break
             }
             "e" {
-                Write-Text -txt "script stopped" -w -f
-                Pause
-                exit
-                
+                Stop-Script -Message "script stopped"
             }
             default {
                 Write-Text -txt "Incorrect input" -w -f
@@ -430,59 +542,54 @@ function Kill-Spotify {
     }
 }
 
-function Invoke-Method {
-
+function Invoke-WithRetry {
     param(
-
-        [string]$method,
-
-        [string]$url,
-
-        [string]$namefile,
-
-        [int]$retries = 3,
-
-        [int]$wait = 4
+        [scriptblock]$Action,
+        [string]$Operation,
+        [int]$Retries = 3,
+        [int]$Wait = 4
     )
 
     $attempt = 0
 
-    while ($attempt -le $retries) {
+    while ($attempt -le $Retries) {
         try {
-            switch ($method) {
-
-                "download" {
-
-                    Invoke-Download -URL $url -FileName $namefile
-                    return
-
-                }
-                "rest" {
-
-                    return Invoke-RestMethod -Uri $url
-
-                }
-                default {
-                    Write-Host 'Invalid value for the "method" parameter' 
-                    exit
-                }
-            }
+            return & $Action
         }
         catch {
             $attempt++
-            if ($attempt -le $retries) {
-
+            if ($attempt -le $Retries) {
                 Write-Warning "Attempt $attempt failed: $($_.Exception.Message)"
-                Write-Text -txt "Retrying in $($wait) seconds..." -e
-                Start-Sleep -Seconds $wait
-                $wait += 2
+                Write-Text -txt "Retrying in $($Wait) seconds..." -e
+                Start-Sleep -Seconds $Wait
+                $Wait += 2
             }
             else {
-                Write-Text -txt "Maximum repetitions for the '$($method)' method reached `n`nConnection issues, script halte." -color "red"
-                exit
+                Stop-Script -Message "Maximum repetitions for the '$($Operation)' method reached `n`nConnection issues, script halted"
             }
         }
     }
+}
+
+function Invoke-RestWithRetry {
+    param(
+        [string]$Url,
+        [int]$Retries = 3,
+        [int]$Wait = 4
+    )
+
+    return Invoke-WithRetry -Action { Invoke-RestMethod -Uri $Url } -Operation 'rest' -Retries $Retries -Wait $Wait
+}
+
+function Invoke-DownloadWithRetry {
+    param(
+        [string]$Url,
+        [string]$NameFile,
+        [int]$Retries = 3,
+        [int]$Wait = 4
+    )
+
+    $null = Invoke-WithRetry -Action { Invoke-Download -URL $Url -FileName $NameFile } -Operation 'download' -Retries $Retries -Wait $Wait
 }
 
 function Invoke-Download {
@@ -779,9 +886,7 @@ Function UninstallSpMs {
         }
 
         if ($ch -eq 1 ) { 
-            Write-Text -txt "script stopped" -w
-            Pause
-            exit
+            Stop-Script -Message "script stopped"
         }
 
         if ($ch -eq 0 -or $uninstall) { 
@@ -817,7 +922,7 @@ function UninstallSp {
         }
     }
 
-    function Remove-RegistryItems {
+    function Remove-RegistryKeys {
         param (
             [string[]]$Paths
         )
@@ -826,6 +931,21 @@ function UninstallSp {
             if (Test-Path $Path) {
                 Remove-Item -Path $Path -Recurse -Force
             }
+        }
+    }
+
+    function Remove-RegistryValues {
+        param (
+            [string]$Path,
+            [string[]]$Names
+        )
+
+        if (-not (Test-Path $Path)) {
+            return
+        }
+
+        foreach ($name in $Names) {
+            Remove-ItemProperty -Path $Path -Name $name -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -856,15 +976,74 @@ function UninstallSp {
         }
     }
 
+    function Invoke-SpotifyUninstall {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$InstalledVersion
+        )
+
+        $spotifyExecutable = Join-Path $spRoaming 'Spotify.exe'
+        $spotifyUninstaller = Join-Path $spRoaming 'uninstall.exe'
+        $pathsToRemove = @($spLocal, $spRoaming, "$env:TEMP\SpotifyUninstall.exe")
+        $installedVersionObject = [version]$InstalledVersion
+        $uninstallProcessName = 'SpotifyUninstall'
+
+        if ($installedVersionObject -ge [version]'1.2.84.476') {
+            if (-not (Test-Path -LiteralPath $spotifyUninstaller)) {
+                Stop-Script -Message "Spotify uninstall.exe was not found for version $InstalledVersion"
+            }
+
+            try {
+                $launcher = Start-Process -FilePath $spotifyUninstaller -ArgumentList '/silent' -PassThru -WindowStyle Hidden -ErrorAction Stop
+                $launcher.WaitForExit()
+
+                $pollIntervalMs = 200
+                $pollMaxMs = 10000
+                $elapsedMs = 0
+
+                while ($elapsedMs -lt $pollMaxMs) {
+                    $uninstallProcess = Get-Process -Name $uninstallProcessName -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($uninstallProcess) {
+                        Wait-Process -Name $uninstallProcessName -ErrorAction SilentlyContinue
+                        break
+                    }
+
+                    if (-not (Test-Path -LiteralPath $spotifyExecutable) -or -not (Test-Path -LiteralPath $spRoaming)) {
+                        break
+                    }
+
+                    Start-Sleep -Milliseconds $pollIntervalMs
+                    $elapsedMs += $pollIntervalMs
+                }
+            }
+            catch {
+                Stop-Script -Message "Failed to launch Spotify uninstaller for version $InstalledVersion. $($_.Exception.Message)"
+            }
+        }
+        else {
+            Start-Process -FilePath $spotifyExecutable -ArgumentList "/UNINSTALL", "/SILENT" -Wait
+            Wait-Process -Name $uninstallProcessName -ErrorAction SilentlyContinue
+        }
+
+        Start-Sleep -Milliseconds 200
+        Remove-FilesAndFolders -paths $pathsToRemove
+
+        $spotifyRemoved = (-not (Test-Path -LiteralPath $spotifyExecutable)) -or (-not (Test-Path -LiteralPath $spRoaming))
+        if (-not $spotifyRemoved) {
+            Stop-Script -Message "Spotify uninstall failed for version $InstalledVersion. Spotify is still installed"
+        }
+    }
+
     $null = unlockFolder
 
     if (Test-Paths -Sp_exe) {
-        Start-Process -FilePath "$spRoaming\Spotify.exe" -ArgumentList "/UNINSTALL", "/SILENT" -Wait
+        $installedVersion = (Get-Item (Join-Path $spRoaming 'Spotify.exe')).VersionInfo.FileVersion
+        Invoke-SpotifyUninstall -InstalledVersion $installedVersion
     }
-
-    $pathsToRemove = @($spLocal, $spRoaming, "$env:TEMP\SpotifyUninstall.exe")
-
-    Remove-FilesAndFolders -paths $pathsToRemove
+    else {
+        $pathsToRemove = @($spLocal, $spRoaming, "$env:TEMP\SpotifyUninstall.exe")
+        Remove-FilesAndFolders -paths $pathsToRemove
+    }
 
 
     $list = @(
@@ -874,16 +1053,108 @@ function UninstallSp {
         "HKCU:\Software\Microsoft\Internet Explorer\Low Rights\DragDrop\{5C0D11B8-C5F6-4be3-AD2C-2B1A3EB94AB6}"
     )
 
-    $keys = @(
-        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run\Spotify Web Helper",
-        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run\Spotify"
+    $runValues = @(
+        "Spotify Web Helper",
+        "Spotify"
     )
 
-    Remove-RegistryItems -Paths $keys
-    Remove-RegistryItems -Paths $list
+    Remove-RegistryValues -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Names $runValues
+    Remove-RegistryKeys -Paths $list
 
 }
 
+
+function Get-UpdatePatchSettings {
+    return [PSCustomObject]@{
+        Encoding         = [Text.Encoding]::GetEncoding(1251)
+        BlockedPattern   = "(?<=desktop-update\/.)7(\/update)"
+        UnblockedPattern = "(?<=desktop-update\/.)2(\/update)"
+    }
+}
+
+function Get-UpdateBackupMap {
+    param(
+        [switch]$Modern
+    )
+
+    if ($Modern) {
+        return [ordered]@{
+            "$spRoaming\Spotify.dll"   = (Join-Path $env:APPDATA 'Spotify\Spotify_dll.bak')
+            "$spRoaming\Spotify.exe"   = (Join-Path $env:APPDATA 'Spotify\Spotify_exe.bak')
+            "$spRoaming\chrome_elf.dll" = (Join-Path $env:APPDATA 'Spotify\chrome_elf.bak')
+        }
+    }
+
+    return [ordered]@{
+        "$spRoaming\Spotify.exe" = (Join-Path $env:APPDATA 'Spotify\Spotify.bak')
+    }
+}
+
+function Get-UpdateBlockState {
+    param(
+        [version]$InstalledVersion,
+        [version]$ThresholdVersion = [version]"1.2.70.404"
+    )
+
+    $isModern = $InstalledVersion -ge $ThresholdVersion
+    $targetFile = if ($isModern) { "$spRoaming\Spotify.dll" } else { "$spRoaming\Spotify.exe" }
+    $backupMap = Get-UpdateBackupMap -Modern:$isModern
+    $settings = Get-UpdatePatchSettings
+    $content = $null
+
+    if (Test-Path $targetFile) {
+        $content = [IO.File]::ReadAllText($targetFile, $settings.Encoding)
+    }
+
+    $canRestore = $true
+    foreach ($backupPath in $backupMap.Values) {
+        if (-not (Test-Path $backupPath)) {
+            $canRestore = $false
+            break
+        }
+    }
+
+    return [PSCustomObject]@{
+        IsModern         = $isModern
+        TargetFile       = $targetFile
+        BackupMap        = $backupMap
+        CanRestore       = $canRestore
+        IsBlocked        = [bool]($content -and $content -match $settings.BlockedPattern)
+        CanPatch         = [bool]($content -and $content -match $settings.UnblockedPattern)
+        Encoding         = $settings.Encoding
+        BlockedPattern   = $settings.BlockedPattern
+        UnblockedPattern = $settings.UnblockedPattern
+    }
+}
+
+function Restore-UpdateBackups {
+    param(
+        $BackupMap
+    )
+
+    foreach ($backupPath in $BackupMap.Values) {
+        if (-not (Test-Path $backupPath)) {
+            return $false
+        }
+    }
+
+    foreach ($livePath in $BackupMap.Keys) {
+        Remove-Item -LiteralPath $livePath -Force -ErrorAction SilentlyContinue
+        Move-Item -LiteralPath $BackupMap[$livePath] -Destination $livePath -Force
+    }
+
+    return $true
+}
+
+function Get-UnlockUpdatesChoice {
+    $options = @{
+        "question"    = "Do you want to unlock updates?"
+        "answer"      = @("Yes", "No")
+        "description" = @("Unlock native Spotify client updates", "Continue to block native Spotify updates")
+    }
+
+    return Get-UserChoice -o $options
+}
 
 function BlockUpdate {
 
@@ -895,120 +1166,25 @@ function BlockUpdate {
     $thresholdVersion = [version]"1.2.70.404"
     $installedVersion = [version]$currentVersion
 
-    # Determine which file to patch based on version
-    if ($installedVersion -ge $thresholdVersion) {
-        # Patch Spotify.dll for version >= 1.2.70.404
-        $targetFile = "$spRoaming\Spotify.dll"
-        
-        # Define backup files for new version
-        $backupDll = Join-Path $env:APPDATA 'Spotify\Spotify_dll.bak'
-        $backupExe = Join-Path $env:APPDATA 'Spotify\Spotify_exe.bak'
-        $backupElf = Join-Path $env:APPDATA 'Spotify\chrome_elf.bak'
-        
-        # Check if backups exist (meaning patch is already applied)
-        if ((Test-Path $backupDll) -and (Test-Path $backupExe) -and (Test-Path $backupElf)) {
-            Write-Text -txt "Spotify updates are already blocked" -e
-            
-            $options = @{
-                "question"    = "Do you want to unlock updates?"
-                "answer"      = @("Yes", "No")
-                "description" = @("Unlock native Spotify client updates", "Continue to block native Spotify updates")
-            }
-            $ch = Get-UserChoice -o $options
-            
-            if ($ch -eq 0) {
-                # Restore from backups
-                Remove-Item "$spRoaming\Spotify.dll" -Force -ErrorAction SilentlyContinue
-                Remove-Item "$spRoaming\Spotify.exe" -Force -ErrorAction SilentlyContinue
-                Remove-Item "$spRoaming\chrome_elf.dll" -Force -ErrorAction SilentlyContinue
-                
-                Rename-Item -Path $backupDll -NewName "$spRoaming\Spotify.dll"
-                Rename-Item -Path $backupExe -NewName "$spRoaming\Spotify.exe"
-                Rename-Item -Path $backupElf -NewName "$spRoaming\chrome_elf.dll"
-                
-                Write-Text -txt "Updates unlocked" -e
-                return
-            }
-            if ($ch -eq 1) {
-                Write-Text -txt "Updates remained blocked" -e
-                return
-            }
-        }
-        
-        # Check if target files exist
-        if (-not (Test-Path $targetFile)) {
-            Write-Text -txt "Failed to find Spotify.dll file for patching" -w -t
-            return
-        }
-        if (-not (Test-Path "$spRoaming\Spotify.exe")) {
-            Write-Text -txt "Failed to find Spotify.exe file for patching" -w -t
-            return
-        }
-        if (-not (Test-Path "$spRoaming\chrome_elf.dll")) {
-            Write-Text -txt "Failed to find chrome_elf.dll file for patching" -w -t
-            return
-        }
-        
-        # Create backups before patching
-        Copy-Item "$spRoaming\Spotify.dll" $backupDll -Force
-        Copy-Item "$spRoaming\Spotify.exe" $backupExe -Force
-        Copy-Item "$spRoaming\chrome_elf.dll" $backupElf -Force
-        
-        # Apply patches for signature reset
-        Reset-Dll-Sign -FilePath $targetFile
-        $files = @("Spotify.dll", "Spotify.exe", "chrome_elf.dll")
-        Remove-Signature-FromFiles $files
-        
-        # Apply URL patch to block updates in Spotify.dll
-        $ANSI = [Text.Encoding]::GetEncoding(1251)
-        $natPtrn = "(?<=desktop-update\/.)7(\/update)"
-        $modPtrn = "(?<=desktop-update\/.)2(\/update)"
-        
-        $dllContent = [IO.File]::ReadAllText("$spRoaming\Spotify.dll", $ANSI)
-        if ($dllContent -match $modPtrn) {
-            $newDllContent = $dllContent -replace $modPtrn, '7/update'
-            [IO.File]::WriteAllText("$spRoaming\Spotify.dll", $newDllContent, $ANSI)
-            Write-Text -txt "Updates blocked" -f
-        }
-        else {
-            Write-Text -txt "Failed to find update URL pattern in Spotify.dll" -w -t
-        }
-        return
-    }
-    else {
-        # Patch Spotify.exe for version < 1.2.70.404
-        $targetFile = "$spRoaming\Spotify.exe"
-        $backupFile = Join-Path $env:APPDATA 'Spotify\Spotify.bak'
-    }
+    $state = Get-UpdateBlockState -InstalledVersion $installedVersion -ThresholdVersion $thresholdVersion
 
-    # Check if target file exists
-    if (-not (Test-Path $targetFile)) {
-        $fileName = Split-Path $targetFile -Leaf
-        Write-Text -txt "Failed to find $fileName file for patching" -w -t
-        return
-    }
-
-    $ANSI = [Text.Encoding]::GetEncoding(1251)
-    $old = [IO.File]::ReadAllText($targetFile, $ANSI)
-    $natPtrn = "(?<=desktop-update\/.)7(\/update)"
-    $modPtrn = "(?<=desktop-update\/.)2(\/update)"
-
-    if ($old -match $natPtrn) {
+    if ($state.IsBlocked) {
         Write-Text -txt "Spotify updates are already blocked" -e
-        if (Test-Path -Path $backupFile) {
-            $options = @{
-                "question"    = "Do you want to unlock updates?"
-                "answer"      = @("Yes", "No")
-                "description" = @("Unlock native Spotify client updates", "Continue to block native Spotify updates")
-            }
-            $ch = Get-UserChoice -o $options
-            if ($ch -eq 0) {   
-                Remove-item $targetFile -Force
-                Rename-Item -path $backupFile -NewName $targetFile
-                Write-Text -txt "Updates unlocked" -e
+
+        if ($state.CanRestore) {
+            $ch = Get-UnlockUpdatesChoice
+            if ($ch -eq 0) {
+                if (Restore-UpdateBackups -BackupMap $state.BackupMap) {
+                    Write-Text -txt "Updates unlocked" -e
+                }
+                else {
+                    Write-Warning "Failed to find backup file, to unlock updates, reinstall Spotify manually"
+                }
+
                 return
             }
-            if ($ch -eq 1) { 
+
+            if ($ch -eq 1) {
                 Write-Text -txt "Updates remained blocked" -e
                 return
             }
@@ -1017,11 +1193,47 @@ function BlockUpdate {
         Write-Warning "Failed to find backup file, to unlock updates, reinstall Spotify manually"
         return
     }
-    elseif ($old -match $modPtrn) {
-        copy-Item $targetFile $backupFile
-        $new = $old -replace $modPtrn, '7/update'
-        [IO.File]::WriteAllText($targetFile, $new, $ANSI)
-        $fileName = Split-Path $targetFile -Leaf
+
+    if ($state.IsModern) {
+        foreach ($livePath in $state.BackupMap.Keys) {
+            if (-not (Test-Path $livePath)) {
+                $fileName = Split-Path $livePath -Leaf
+                Write-Text -txt "Failed to find $fileName file for patching" -w -t
+                return
+            }
+        }
+
+        foreach ($livePath in $state.BackupMap.Keys) {
+            Copy-Item $livePath $state.BackupMap[$livePath] -Force
+        }
+
+        Reset-Dll-Sign -FilePath $state.TargetFile
+        Remove-Signature-FromFiles @("Spotify.dll", "Spotify.exe", "chrome_elf.dll")
+
+        $dllContent = [IO.File]::ReadAllText($state.TargetFile, $state.Encoding)
+        if ($dllContent -match $state.UnblockedPattern) {
+            $newDllContent = $dllContent -replace $state.UnblockedPattern, '7/update'
+            [IO.File]::WriteAllText($state.TargetFile, $newDllContent, $state.Encoding)
+            Write-Text -txt "Updates blocked" -f
+        }
+        else {
+            Write-Text -txt "Failed to find update URL pattern in Spotify.dll" -w -t
+        }
+
+        return
+    }
+
+    if (-not (Test-Path $state.TargetFile)) {
+        $fileName = Split-Path $state.TargetFile -Leaf
+        Write-Text -txt "Failed to find $fileName file for patching" -w -t
+        return
+    }
+
+    $old = [IO.File]::ReadAllText($state.TargetFile, $state.Encoding)
+    if ($old -match $state.UnblockedPattern) {
+        Copy-Item $state.TargetFile $state.BackupMap[$state.TargetFile] -Force
+        $new = $old -replace $state.UnblockedPattern, '7/update'
+        [IO.File]::WriteAllText($state.TargetFile, $new, $state.Encoding)
         Write-Text -txt "Updates blocked" -f
     }
     else {
@@ -1133,8 +1345,7 @@ public class ScannerCore {
     
     Write-Verbose "Loading file: $FilePath"
     if (-not (Test-Path $FilePath)) { 
-        Write-Warning "File Spotify.dll not found"
-        Stop-Script
+        Stop-Script -Message "File Spotify.dll not found"
     }
     $bytes = [System.IO.File]::ReadAllBytes($FilePath)
 
@@ -1147,8 +1358,7 @@ public class ScannerCore {
         if ($Machine -eq 0x8664) { $ArchName = "x64"; $IsArm64 = $false }
         elseif ($Machine -eq 0xAA64) { $ArchName = "ARM64"; $IsArm64 = $true }
         else { 
-            Write-Warning "Architecture not supported for patching Spotify.dll"
-            Stop-Script
+            Stop-Script -Message "Architecture not supported for patching Spotify.dll"
         }
 
         Write-Verbose "Architecture: $ArchName"
@@ -1170,8 +1380,7 @@ public class ScannerCore {
         }
     }
     catch { 
-        Write-Warning "PE Error in Spotify.dll"
-        Stop-Script
+        Stop-Script -Message "PE Error in Spotify.dll"
     }
 
     function Get-RVA($FileOffset) {
@@ -1187,8 +1396,7 @@ public class ScannerCore {
     $StringBytes = [System.Text.Encoding]::ASCII.GetBytes($TargetStringText)
     $StringOffset = [ScannerCore]::FindBytes($bytes, $StringBytes)
     if ($StringOffset -eq -1) { 
-        Write-Warning "String not found in Spotify.dll"
-        Stop-Script
+        Stop-Script -Message "String not found in Spotify.dll"
     }
     $StringRVA = Get-RVA $StringOffset
 
@@ -1214,8 +1422,7 @@ public class ScannerCore {
     }
 
     if ($PatchOffset -eq 0) { 
-        Write-Warning "Function not found in Spotify.dll"
-        Stop-Script
+        Stop-Script -Message "Function not found in Spotify.dll"
     }
 
     $BytesToWrite = if ($IsArm64) { $Patch_ARM64 } else { $Patch_x64 }
@@ -1237,8 +1444,7 @@ public class ScannerCore {
         Write-Verbose "Success"
     }
     catch { 
-        Write-Warning "Write error in Spotify.dll $($_.Exception.Message)" 
-        Stop-Script
+        Stop-Script -Message "Write error in Spotify.dll $($_.Exception.Message)"
     }
 }
 
@@ -1303,10 +1509,7 @@ function Remove-Signature-FromFiles([string[]]$fileNames) {
     foreach ($fileName in $fileNames) {
         $fullPath = Join-Path -Path $spRoaming -ChildPath $fileName
         if (-not (Test-Path $fullPath)) {
-            Write-Error "File not found: $fullPath"
-            Write-Host ($lang).StopScript
-            Pause
-            Exit
+            Stop-Script -Message "File not found: $fullPath"
         }
         try {
             Write-Verbose "Processing file: $fileName"
@@ -1315,10 +1518,7 @@ function Remove-Signature-FromFiles([string[]]$fileNames) {
             }
         }
         catch {
-            Write-Error "Failed to process file '$fileName': $_"
-            Write-Host ($lang).StopScript
-            Pause
-            Exit
+            Stop-Script -Message "Failed to process file '$fileName': $_"
         }
     }
 }
@@ -1359,9 +1559,8 @@ if (!(Test-Paths -Sp_exe)) {
     # add Tls12
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12;
 
-    $jsonUrl = "https://raw.githubusercontent.com/LoaderSpot/LoaderSpot/refs/heads/main/versions.json"
-
-    $jsonContent = Invoke-Method -Method 'rest' -url $jsonUrl
+    $jsonUrl = "https://raw.githubusercontent.com/LoaderSpot/table/refs/heads/main/table/versions.json"
+    $jsonContent = Get-VersionManifest -PrimaryUrl $jsonUrl
 
     $resp = Version-Select -c $jsonContent
     $fullversion = $resp.name.fullversion
@@ -1372,7 +1571,7 @@ if (!(Test-Paths -Sp_exe)) {
     Write-Host "$($part)-[$($resp.arch)]" -ForegroundColor Green -NoNewline
     Write-host " ..."
 
-    Invoke-Method -Method 'download' -url $resp.link -namefile "SpotifySetup.exe"
+    Invoke-DownloadWithRetry -Url $resp.link -NameFile "SpotifySetup.exe"
   
     $temp = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath 'SpotifySetup.exe'
 

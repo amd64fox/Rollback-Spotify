@@ -36,10 +36,6 @@ iex "& { $(iwr -useb 'https://amd64fox.github.io/Rollback-Spotify/run.ps1') } -v
 -u, -uninstall    Automatically uninstalls any existing Spotify version
 
 -n, -not_block    Skips blocking of automatic updates after installation
-
--b, -buildtype    Filters versions by build type
-                  [possible values: "release", "master", "all"] [default:"release"]
-                  Warning: "master" builds can be unstable and are for testing only
 ```
 
 ## Credits
